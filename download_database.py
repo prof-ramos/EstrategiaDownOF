@@ -306,6 +306,10 @@ class DownloadDatabase:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             cursor = conn.cursor()
 
+            # Check if file already exists to avoid duplicating statistics
+            cursor.execute("SELECT COUNT(*) FROM downloads WHERE file_path = ?", (file_path,))
+            already_exists = cursor.fetchone()[0] > 0
+
             # Insert or replace
             cursor.execute("""
                 INSERT OR REPLACE INTO downloads
@@ -317,8 +321,9 @@ class DownloadDatabase:
                 size_bytes, sha256, sha256 is not None
             ))
 
-            # Atualiza estatísticas
-            self._update_statistics(cursor, file_type, size_bytes)
+            # Only update statistics if this is a new file
+            if not already_exists:
+                self._update_statistics(cursor, file_type, size_bytes)
 
             conn.commit()
             conn.close()
@@ -352,6 +357,10 @@ class DownloadDatabase:
                     except OSError:
                         pass
 
+                # Check if file already exists to avoid duplicating statistics
+                cursor.execute("SELECT COUNT(*) FROM downloads WHERE file_path = ?", (file_path,))
+                already_exists = cursor.fetchone()[0] > 0
+
                 cursor.execute("""
                     INSERT OR REPLACE INTO downloads
                     (file_path, file_name, url, course_name, lesson_name, file_type,
@@ -362,7 +371,9 @@ class DownloadDatabase:
                     d['lesson_name'], d['file_type'], size_bytes
                 ))
 
-                self._update_statistics(cursor, d['file_type'], size_bytes)
+                # Only update statistics if this is a new file
+                if not already_exists:
+                    self._update_statistics(cursor, d['file_type'], size_bytes)
 
             conn.commit()
             conn.close()
