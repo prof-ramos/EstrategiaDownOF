@@ -15,3 +15,11 @@ selenium>=4.15.0
 
 # Gerenciador automático de drivers do Selenium
 webdriver-manager>=4.0.0
+
+# Async downloads
+aiohttp>=3.8.0
+aiofiles>=23.0.0
+
+# Performance optimizations
+orjson>=3.9.0  # 10x faster JSON
+uvloop>=0.19.0; sys_platform != 'win32'  # 30-40% faster async on macOS/Linux

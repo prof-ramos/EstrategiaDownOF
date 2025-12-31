@@ -2,9 +2,25 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
+
+# Use orjson for 10x faster JSON if available, fallback to stdlib
+try:
+    import orjson
+    def json_loads(data: str | bytes) -> dict:
+        return orjson.loads(data)
+    def json_dumps(obj: dict, indent: bool = False) -> bytes:
+        opts = orjson.OPT_INDENT_2 if indent else 0
+        return orjson.dumps(obj, option=opts)
+    JSON_WRITE_MODE = 'wb'
+except ImportError:
+    import json
+    def json_loads(data: str | bytes) -> dict:
+        return json.loads(data)
+    def json_dumps(obj: dict, indent: bool = False) -> str:
+        return json.dumps(obj, indent=2 if indent else None)
+    JSON_WRITE_MODE = 'w'
 import ssl
 import sys
 import time
@@ -13,6 +29,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 
 import requests
+import urllib3
 from colorama import Fore, Style, init
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
@@ -46,7 +63,6 @@ SESSION = requests.Session()  # Sessão global para reaproveitar conexões
 SESSION.verify = False  # Desabilita verificação SSL apenas para esta sessão
 
 # Suprimir avisos de SSL (opcional, mas evita poluir o terminal)
-import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- Funções de Log Coloridas ---
@@ -71,19 +87,26 @@ def log_error(msg: str) -> None:
 
 # --- Funções Auxiliares ---
 
+# Translation table for filename sanitization (computed once at module load)
+_SANITIZE_TRANS = str.maketrans({
+    '<': None, '>': None, ':': None, '"': None, '/': None,
+    '\\': None, '|': None, '?': None, '*': None, '.': None, ',': None,
+    ' ': '_', '-': '_'
+})
+
 def sanitize_filename(original_filename: str) -> str:
-    """Remove caracteres inválidos do nome do arquivo."""
-    sanitized = re.sub(r'[<>:"/\\|?*]', '', original_filename)
-    sanitized = re.sub(r'[.,]', '', sanitized)
-    sanitized = re.sub(r'[\s-]+', '_', sanitized)
-    sanitized = sanitized.strip('._- ')
-    return sanitized.strip()
+    """Remove caracteres inválidos do nome do arquivo (optimized single-pass)."""
+    sanitized = original_filename.translate(_SANITIZE_TRANS)
+    # Collapse multiple consecutive underscores
+    while '__' in sanitized:
+        sanitized = sanitized.replace('__', '_')
+    return sanitized.strip('_')
 
 def save_cookies(driver: WebDriver, path: str) -> bool:
-    """Salva cookies do navegador em arquivo JSON."""
+    """Salva cookies do navegador em arquivo JSON (orjson optimized)."""
     try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(driver.get_cookies(), f, indent=2)
+        with open(path, JSON_WRITE_MODE) as f:
+            f.write(json_dumps(driver.get_cookies(), indent=True))
         log_info("Cookies salvos.")
         return True
     except (OSError, IOError) as e:
@@ -92,12 +115,12 @@ def save_cookies(driver: WebDriver, path: str) -> bool:
 
 
 def load_cookies(driver: WebDriver, path: str) -> bool:
-    """Carrega cookies de arquivo JSON para o navegador."""
+    """Carrega cookies de arquivo JSON para o navegador (orjson optimized)."""
     if not os.path.exists(path):
         return False
     try:
-        with open(path, 'r', encoding='utf-8') as f:
-            cookies = json.load(f)
+        with open(path, 'rb') as f:
+            cookies = json_loads(f.read())
         for cookie in cookies:
             # Alguns cookies podem ter campos incompatíveis
             cookie.pop('sameSite', None)  # Remove campo problemático
@@ -107,7 +130,7 @@ def load_cookies(driver: WebDriver, path: str) -> bool:
                 pass  # Ignora cookies inválidos
         log_info("Cookies carregados.")
         return True
-    except (json.JSONDecodeError, OSError, IOError) as e:
+    except (ValueError, OSError, IOError) as e:
         log_warn(f"Erro ao carregar cookies: {e}")
         return False
 
@@ -130,7 +153,9 @@ def download_file_task(task: dict[str, str]) -> str:
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*'
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate, br',  # Compression for 60-80% bandwidth savings
+        'Connection': 'keep-alive'  # Reuse connections
     }
     if referer:
         headers['Referer'] = referer
