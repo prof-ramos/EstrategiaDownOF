@@ -6,12 +6,15 @@ import os
 import sys
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 import aiofiles
 import aiohttp
 from colorama import Fore, Style
 from tqdm import tqdm
+
+# Import new DownloadDatabase
+from download_database import DownloadDatabase
 
 # Use uvloop on macOS/Linux for 30-40% faster async (fallback on Windows/if not installed)
 if sys.platform != 'win32':
@@ -44,7 +47,10 @@ INITIAL_RETRY_DELAY = 2.0  # segundos
 
 
 class DownloadIndex:
-    """Manages the download checkpoint index with thread-safe operations."""
+    """Legacy download index - mantido para compatibilidade reversa.
+
+    DEPRECATED: Use DownloadDatabase em vez disso.
+    """
 
     def __init__(self, base_dir: str):
         self.index_path = Path(base_dir) / INDEX_FILE
@@ -93,7 +99,7 @@ class DownloadIndex:
 async def download_file_async(
     session: aiohttp.ClientSession,
     task: dict[str, str],
-    index: DownloadIndex,
+    index: Union[DownloadIndex, DownloadDatabase],
     semaphore: asyncio.Semaphore,
     pbar: tqdm
 ) -> str:
@@ -101,8 +107,8 @@ async def download_file_async(
 
     Args:
         session: aiohttp session for connection pooling.
-        task: Dict with url, path, filename, referer.
-        index: DownloadIndex for checkpointing.
+        task: Dict with url, path, filename, referer, course_name, lesson_name, file_type.
+        index: DownloadIndex or DownloadDatabase for checkpointing.
         semaphore: Limits concurrent downloads.
         pbar: Progress bar to update.
 
@@ -114,15 +120,30 @@ async def download_file_async(
     filename = task['filename']
     referer = task.get('referer')
 
+    # Extract metadata for DownloadDatabase
+    course_name = task.get('course_name', 'Unknown')
+    lesson_name = task.get('lesson_name', 'Unknown')
+    file_type = task.get('file_type', 'unknown')
+
     async with semaphore:
         # Check index first
-        if index.is_completed(path):
+        if index.is_downloaded(path):
             pbar.update(1)
             return f"{Fore.YELLOW}Já indexado (pulado): {filename}"
 
         # Check if file exists on disk
         if os.path.exists(path):
-            index.mark_completed(path)
+            # Mark as completed with metadata if using DownloadDatabase
+            if isinstance(index, DownloadDatabase):
+                index.mark_downloaded(
+                    file_path=path,
+                    url=url,
+                    course_name=course_name,
+                    lesson_name=lesson_name,
+                    file_type=file_type
+                )
+            else:
+                index.mark_completed(path)
             pbar.update(1)
             return f"{Fore.YELLOW}Já existe (pulado): {filename}"
 
@@ -157,7 +178,19 @@ async def download_file_async(
                     if response.status == 416:  # Range not satisfiable = file complete
                         if os.path.exists(temp_path):
                             os.rename(temp_path, path)
-                        index.mark_completed(path)
+
+                        # Mark with metadata if using DownloadDatabase
+                        if isinstance(index, DownloadDatabase):
+                            index.mark_downloaded(
+                                file_path=path,
+                                url=url,
+                                course_name=course_name,
+                                lesson_name=lesson_name,
+                                file_type=file_type
+                            )
+                        else:
+                            index.mark_completed(path)
+
                         pbar.update(1)
                         return f"{Fore.GREEN}Resumido (completo): {filename}"
 
@@ -176,7 +209,19 @@ async def download_file_async(
 
                     # Rename temp file to final
                     os.rename(temp_path, path)
-                    index.mark_completed(path)
+
+                    # Mark with metadata if using DownloadDatabase
+                    if isinstance(index, DownloadDatabase):
+                        index.mark_downloaded(
+                            file_path=path,
+                            url=url,
+                            course_name=course_name,
+                            lesson_name=lesson_name,
+                            file_type=file_type
+                        )
+                    else:
+                        index.mark_completed(path)
+
                     pbar.update(1)
                     return f"{Fore.GREEN}Baixado: {filename}"
 
@@ -211,7 +256,8 @@ async def download_file_async(
 async def process_download_queue_async(
     queue: list[dict[str, str]],
     base_dir: str,
-    max_workers: int = 4
+    max_workers: int = 4,
+    use_sqlite: bool = True
 ) -> None:
     """Process download queue using async I/O.
 
@@ -219,15 +265,23 @@ async def process_download_queue_async(
         queue: List of download tasks.
         base_dir: Base directory for downloads.
         max_workers: Maximum concurrent downloads.
+        use_sqlite: If True uses SQLite (default), if False uses JSON fallback.
     """
     if not queue:
         return
 
-    index = DownloadIndex(base_dir)
+    # Use new DownloadDatabase by default
+    if use_sqlite:
+        index = DownloadDatabase(base_dir, use_sqlite=True)
+        tqdm.write(f"{Fore.CYAN}● INFO:{Style.RESET_ALL} Usando sistema de tracking SQLite (com metadados)")
+    else:
+        index = DownloadIndex(base_dir)
+        tqdm.write(f"{Fore.YELLOW}● INFO:{Style.RESET_ALL} Usando sistema de tracking JSON (legado)")
+
     semaphore = asyncio.Semaphore(max_workers)
 
     # Filter out already completed downloads
-    pending = [t for t in queue if not index.is_completed(t['path'])]
+    pending = [t for t in queue if not index.is_downloaded(t['path'])]
 
     if not pending:
         tqdm.write(f"{Fore.GREEN}✓{Style.RESET_ALL} Todos os arquivos já foram baixados.")
@@ -262,15 +316,21 @@ async def process_download_queue_async(
                 raise
 
 
-def run_async_downloads(queue: list[dict[str, str]], base_dir: str, max_workers: int = 4) -> None:
+def run_async_downloads(
+    queue: list[dict[str, str]],
+    base_dir: str,
+    max_workers: int = 4,
+    use_sqlite: bool = True
+) -> None:
     """Wrapper to run async downloads from sync code.
 
     Args:
         queue: List of download tasks.
         base_dir: Base directory for downloads.
         max_workers: Maximum concurrent downloads.
+        use_sqlite: If True uses SQLite (default), if False uses JSON fallback.
     """
     try:
-        asyncio.run(process_download_queue_async(queue, base_dir, max_workers))
+        asyncio.run(process_download_queue_async(queue, base_dir, max_workers, use_sqlite))
     except KeyboardInterrupt:
         tqdm.write(f"{Fore.YELLOW}⚠ AVISO:{Style.RESET_ALL} Interrompido pelo usuário. Progresso salvo.")
