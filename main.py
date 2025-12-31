@@ -194,7 +194,9 @@ def download_file_task(task: dict[str, str], index: DownloadIndex = None) -> str
         """Tenta fazer o download uma vez. Retorna (success, message)."""
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': '*/*'
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br',  # Compression for 60-80% bandwidth savings
+            'Connection': 'keep-alive'  # Reuse connections
         }
         if referer:
             headers['Referer'] = referer
