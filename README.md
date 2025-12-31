@@ -5,12 +5,16 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✨ O que você vai conseguir
+## ✨ Recursos Principais
 
-- **Baixar automaticamente** todos os seus cursos, aulas, PDFs e vídeos
-- **Manter sessão salva** para não precisar logar toda vez
-- **Downloads paralelos** para maior velocidade
-- **Modo headless** para rodar em segundo plano
+- ⚡ **Downloads assíncronos ultra-rápidos** (modo padrão)
+- 🔄 **Retry automático** com backoff exponencial (4 tentativas)
+- 💾 **Resume de downloads** interrompidos (arquivos .part)
+- ✅ **Checkpoint/index** para não re-baixar arquivos completos
+- 🔐 **Login persistente** via cookies salvos
+- 📦 **Downloads paralelos** configuráveis (padrão: 4 workers)
+- 👻 **Modo headless** para rodar em segundo plano
+- 📊 **Progress bars** detalhadas com cores
 
 ---
 
@@ -50,8 +54,22 @@ salvos automaticamente.
 | `-w`, `--wait-time` | Tempo (segundos) para aguardar o login manual   | `60`                                         |
 | `--headless`        | Executa o navegador em modo oculto (sem janela) | Desabilitado                                 |
 | `--workers`         | Número de downloads simultâneos                 | `4`                                          |
+| `--sync`            | Usa modo síncrono em vez de async (mais lento)  | Desabilitado (async é padrão)                |
+
+### 🆕 Novidades da Versão Atual
+
+- **Modo Async por padrão**: Muito mais rápido que o modo síncrono
+- **Retry inteligente**: Se um download falhar (rede instável), tenta novamente automaticamente
+- **Resume de downloads**: Se interromper o script, retoma de onde parou (arquivos `.part`)
+- **Checkpoint persistente**: Salva em `download_index.json` quais arquivos já foram baixados
 
 ### Exemplos de Uso
+
+**Uso básico (recomendado - modo async):**
+
+```bash
+python main.py
+```
 
 **Rodar em segundo plano (mais rápido):**
 
@@ -71,7 +89,13 @@ python main.py --workers 8
 python main.py -d ~/Downloads/Cursos
 ```
 
-**Combinar opções:**
+**Usar modo síncrono (se tiver problemas com async):**
+
+```bash
+python main.py --sync
+```
+
+**Combinação recomendada (máxima velocidade):**
 
 ```bash
 python main.py --headless --workers 8 -d ~/Downloads/Cursos
@@ -94,6 +118,52 @@ Meus Cursos - Estratégia Concursos/
 │       └── ...
 └── Outro_Curso/
     └── ...
+```
+
+---
+
+## 🛡️ Sistema de Resiliência
+
+### Retry Automático com Backoff Exponencial
+
+Se um download falhar devido a problemas de rede, o sistema tenta novamente automaticamente:
+
+- **1ª tentativa**: Imediato
+- **2ª tentativa**: Aguarda 2 segundos
+- **3ª tentativa**: Aguarda 4 segundos
+- **4ª tentativa**: Aguarda 8 segundos
+
+### Resume de Downloads Interrompidos
+
+Se você interromper o script (Ctrl+C) ou ocorrer um erro:
+
+1. Arquivos completos são salvos em `download_index.json`
+2. Downloads parciais são salvos como `.part` files
+3. Na próxima execução, continua de onde parou
+
+**Exemplo:**
+```bash
+# Primeira execução (interrompida)
+python main.py
+# Ctrl+C durante download de video.mp4
+# Arquivo salvo como: video.mp4.part (parcial)
+
+# Segunda execução (retoma automaticamente)
+python main.py
+# Retoma o download de video.mp4 de onde parou!
+```
+
+### Limpeza de Arquivos Temporários
+
+Se quiser recomeçar tudo do zero:
+
+```bash
+# Remove checkpoint e arquivos parciais
+rm download_index.json
+rm **/*.part
+
+# Executa novamente
+python main.py
 ```
 
 ---
@@ -146,7 +216,9 @@ python main.py --workers 8
 
 ### Dependências Python
 
-- `requests` - Requisições HTTP
+- `requests` - Requisições HTTP síncronas
+- `aiohttp` - Requisições HTTP assíncronas (modo async)
+- `aiofiles` - I/O de arquivos assíncrono
 - `tqdm` - Barras de progresso
 - `colorama` - Cores no terminal
 - `selenium` - Automação do navegador

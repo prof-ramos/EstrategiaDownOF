@@ -1,4 +1,4 @@
-"""Async download manager with progress checkpointing."""
+"""Async download manager with progress checkpointing and retry."""
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +14,8 @@ from tqdm import tqdm
 
 CHUNK_SIZE = 131072  # 128KB
 INDEX_FILE = "download_index.json"
+MAX_RETRIES = 4
+INITIAL_RETRY_DELAY = 2.0  # segundos
 
 
 class DownloadIndex:
@@ -57,7 +59,7 @@ async def download_file_async(
     semaphore: asyncio.Semaphore,
     pbar: tqdm
 ) -> str:
-    """Download a single file asynchronously with resume support.
+    """Download a single file asynchronously with resume and retry support.
 
     Args:
         session: aiohttp session for connection pooling.
@@ -86,58 +88,84 @@ async def download_file_async(
             pbar.update(1)
             return f"{Fore.YELLOW}Já existe (pulado): {filename}"
 
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-            'Accept': '*/*'
-        }
-        if referer:
-            headers['Referer'] = referer
-
-        # Check for partial download (resume support)
-        existing_size = 0
         temp_path = path + ".part"
-        if os.path.exists(temp_path):
-            existing_size = os.path.getsize(temp_path)
-            headers['Range'] = f'bytes={existing_size}-'
 
-        try:
-            # Create parent directory
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Retry loop com backoff exponencial
+        delay = INITIAL_RETRY_DELAY
+        last_error = None
 
-            async with session.get(url, headers=headers, ssl=False) as response:
-                # Check if server supports range requests
-                if response.status == 416:  # Range not satisfiable = file complete
-                    if os.path.exists(temp_path):
-                        os.rename(temp_path, path)
+        for attempt in range(MAX_RETRIES):
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    'Accept': '*/*'
+                }
+                if referer:
+                    headers['Referer'] = referer
+
+                # Check for partial download (resume support)
+                existing_size = 0
+                if os.path.exists(temp_path):
+                    existing_size = os.path.getsize(temp_path)
+                    headers['Range'] = f'bytes={existing_size}-'
+
+                # Create parent directory
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+
+                async with session.get(url, headers=headers, ssl=False) as response:
+                    # Check if server supports range requests
+                    if response.status == 416:  # Range not satisfiable = file complete
+                        if os.path.exists(temp_path):
+                            os.rename(temp_path, path)
+                        index.mark_completed(path)
+                        pbar.update(1)
+                        return f"{Fore.GREEN}Resumido (completo): {filename}"
+
+                    response.raise_for_status()
+
+                    # Get total size
+                    content_length = response.headers.get('content-length')
+                    total_size = int(content_length) if content_length else 0
+
+                    # If resuming and server returned 206 Partial Content
+                    mode = 'ab' if response.status == 206 else 'wb'
+
+                    async with aiofiles.open(temp_path, mode) as f:
+                        async for chunk in response.content.iter_chunked(CHUNK_SIZE):
+                            await f.write(chunk)
+
+                    # Rename temp file to final
+                    os.rename(temp_path, path)
                     index.mark_completed(path)
                     pbar.update(1)
-                    return f"{Fore.GREEN}Resumido (completo): {filename}"
+                    return f"{Fore.GREEN}Baixado: {filename}"
 
-                response.raise_for_status()
+            except asyncio.CancelledError:
+                # Don't delete partial file on cancellation (for resume)
+                raise
 
-                # Get total size
-                content_length = response.headers.get('content-length')
-                total_size = int(content_length) if content_length else 0
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                # Erros de rede são recuperáveis
+                last_error = e
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(delay)
+                    delay *= 2  # Backoff exponencial
+                continue
 
-                # If resuming and server returned 206 Partial Content
-                mode = 'ab' if response.status == 206 else 'wb'
-
-                async with aiofiles.open(temp_path, mode) as f:
-                    async for chunk in response.content.iter_chunked(CHUNK_SIZE):
-                        await f.write(chunk)
-
-                # Rename temp file to final
-                os.rename(temp_path, path)
-                index.mark_completed(path)
+            except Exception as e:
+                # Outros erros, não tenta novamente
                 pbar.update(1)
-                return f"{Fore.GREEN}Baixado: {filename}"
+                # Remove arquivo parcial em caso de erro fatal
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
+                return f"{Fore.RED}Falha: {filename} - {e}"
 
-        except asyncio.CancelledError:
-            # Don't delete partial file on cancellation (for resume)
-            raise
-        except Exception as e:
-            pbar.update(1)
-            return f"{Fore.RED}Falha: {filename} - {e}"
+        # Se chegou aqui, todas as tentativas falharam
+        pbar.update(1)
+        return f"{Fore.RED}Falha após {MAX_RETRIES} tentativas: {filename} - {last_error}"
 
 
 async def process_download_queue_async(
