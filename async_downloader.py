@@ -190,16 +190,22 @@ async def process_download_queue_async(
     pending = [t for t in queue if not index.is_completed(t['path'])]
 
     if not pending:
-        tqdm.write(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Todos os arquivos já foram baixados.")
+        tqdm.write(f"{Fore.GREEN}✓{Style.RESET_ALL} Todos os arquivos já foram baixados.")
         return
 
-    tqdm.write(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} Iniciando download de {len(pending)} arquivos (async)...")
+    tqdm.write(f"{Fore.CYAN}● INFO:{Style.RESET_ALL} Iniciando download de {len(pending)} arquivos (async)...")
 
     connector = aiohttp.TCPConnector(limit=max_workers, limit_per_host=max_workers)
     timeout = aiohttp.ClientTimeout(total=300)  # 5 min timeout
 
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-        with tqdm(total=len(pending), desc="Progresso da Aula", unit="arq", colour='cyan') as pbar:
+        pbar_config = {
+            "desc": "  ⚡ Baixando (async)",
+            "unit": " arq",
+            "colour": "magenta",
+            "bar_format": "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+        }
+        with tqdm(total=len(pending), **pbar_config) as pbar:
             tasks = [
                 download_file_async(session, task, index, semaphore, pbar)
                 for task in pending
@@ -210,9 +216,9 @@ async def process_download_queue_async(
                 # Log any errors
                 for result in results:
                     if isinstance(result, Exception):
-                        tqdm.write(f"{Fore.RED}[ERRO]{Style.RESET_ALL} {result}")
+                        tqdm.write(f"{Fore.RED}✗ ERRO:{Style.RESET_ALL} {result}")
             except asyncio.CancelledError:
-                tqdm.write(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} Download interrompido. Progresso salvo.")
+                tqdm.write(f"{Fore.YELLOW}⚠ AVISO:{Style.RESET_ALL} Download interrompido. Progresso salvo.")
                 raise
 
 
@@ -227,4 +233,4 @@ def run_async_downloads(queue: list[dict[str, str]], base_dir: str, max_workers:
     try:
         asyncio.run(process_download_queue_async(queue, base_dir, max_workers))
     except KeyboardInterrupt:
-        tqdm.write(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} Interrompido pelo usuário. Progresso salvo.")
+        tqdm.write(f"{Fore.YELLOW}⚠ AVISO:{Style.RESET_ALL} Interrompido pelo usuário. Progresso salvo.")

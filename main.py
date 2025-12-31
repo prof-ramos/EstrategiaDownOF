@@ -22,6 +22,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from tqdm import tqdm
 
 from async_downloader import run_async_downloads, DownloadIndex
+import ui
 
 if TYPE_CHECKING:
     from selenium.webdriver.remote.webdriver import WebDriver
@@ -52,22 +53,22 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # --- Funções de Log Coloridas ---
 def log_info(msg: str) -> None:
     """Log informational message."""
-    tqdm.write(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} {msg}")
+    tqdm.write(f"{Fore.CYAN}● INFO:{Style.RESET_ALL} {msg}")
 
 
 def log_success(msg: str) -> None:
     """Log success message."""
-    tqdm.write(f"{Fore.GREEN}[OK]{Style.RESET_ALL} {msg}")
+    tqdm.write(f"{Fore.GREEN}✓ OK:{Style.RESET_ALL} {msg}")
 
 
 def log_warn(msg: str) -> None:
     """Log warning message."""
-    tqdm.write(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} {msg}")
+    tqdm.write(f"{Fore.YELLOW}⚠ AVISO:{Style.RESET_ALL} {msg}")
 
 
 def log_error(msg: str) -> None:
     """Log error message."""
-    tqdm.write(f"{Fore.RED}[ERRO]{Style.RESET_ALL} {msg}")
+    tqdm.write(f"{Fore.RED}✗ ERRO:{Style.RESET_ALL} {msg}")
 
 # --- Funções Auxiliares ---
 
@@ -275,7 +276,13 @@ def process_download_queue(queue: list[dict[str, str]], base_dir: str) -> None:
         future_to_task = {executor.submit(download_file_task, task, index): task for task in pending}
 
         # Barra de progresso geral (quantidade de arquivos)
-        for future in tqdm(as_completed(future_to_task), total=len(pending), desc="Progresso da Aula", unit="arq", colour='cyan'):
+        pbar_config = {
+            "desc": "  📦 Baixando",
+            "unit": " arq",
+            "colour": "cyan",
+            "bar_format": "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+        }
+        for future in tqdm(as_completed(future_to_task), total=len(pending), **pbar_config):
             result_msg = future.result()
             # Opcional: descomentar para ver resultado de cada arquivo
             # tqdm.write(result_msg)
@@ -560,10 +567,16 @@ Recursos:
     # Expande o '~' se o usuário passar um caminho relativo, mas usa o absoluto se for o default
     save_dir = os.path.expanduser(args.dir)
 
+    # Banner e configurações
     mode_label = "Async" if args.use_async else "Síncrono"
-    print(f"{Fore.BLUE}{Style.BRIGHT}=== AutoDownload Estratégia (Modo {mode_label}) ==={Style.RESET_ALL}")
-    print(f"Salvando em: {save_dir}")
-    print(f"{Fore.CYAN}Workers: {MAX_WORKERS} | Retry: 4x com backoff | Checkpoint: Ativo{Style.RESET_ALL}")
+
+    if args.headless:
+        print(ui.simple_banner())
+    else:
+        print(ui.banner())
+
+    print("\n" + ui.config_panel(mode_label, MAX_WORKERS, save_dir))
+    print()
 
     driver = get_driver(headless=args.headless)
 
@@ -577,30 +590,31 @@ Recursos:
             # Verifica se realmente está logado
             try:
                 WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "section[id^='card']")))
-                log_success("Sessão restaurada com sucesso.")
+                print(ui.session_restored())
             except Exception:
                 log_warn("Sessão expirada. Necessário login manual.")
                 session_loaded = False
 
         if not session_loaded:
-            log_info("Abra o navegador e faça LOGIN.")
+            print(ui.login_prompt(args.wait_time))
             driver.get("https://perfil.estrategia.com/login")
-            for _ in tqdm(range(args.wait_time), desc="Aguardando Login", bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}s", colour='yellow'):
+            for _ in tqdm(range(args.wait_time), desc="⏳ Aguardando Login", bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}s", colour='yellow'):
                 time.sleep(1)
             # Salva cookies após login
             save_cookies(driver, COOKIES_FILE)
+            print(f"\n{Fore.GREEN}✓ Cookies salvos com sucesso!{Style.RESET_ALL}\n")
 
         courses = get_courses_list(driver)
         if not courses:
             log_error("Nenhum curso encontrado. Verifique se logou corretamente.")
             return
 
-        for i, course in enumerate(courses):
-            print(f"\n{Fore.MAGENTA}{Style.BRIGHT}CURSO [{i+1}/{len(courses)}]: {course['title']}{Style.RESET_ALL}")
+        for i, course in enumerate(courses, 1):
+            print(ui.course_header(i, len(courses), course['title']))
 
             lessons = get_lessons_list(driver, course['url'])
-            for j, lesson in enumerate(lessons):
-                print(f"\n{Fore.BLUE}  Aula [{j+1}/{len(lessons)}]: {lesson['title']}{Style.RESET_ALL}")
+            for j, lesson in enumerate(lessons, 1):
+                print(ui.lesson_header(j, len(lessons), lesson['title']))
 
                 # 1. Coleta Links (Serial)
                 queue = scrape_lesson_data(driver, lesson, course['title'], save_dir)
@@ -615,12 +629,14 @@ Recursos:
                     log_warn("  Nenhum arquivo encontrado nesta aula.")
 
     except KeyboardInterrupt:
-        print("\nInterrompido pelo usuário.")
+        print(f"\n\n{Fore.YELLOW}⚠  Interrompido pelo usuário.{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}💾 Progresso salvo! Execute novamente para continuar.{Style.RESET_ALL}\n")
     except Exception as e:
         log_error(f"Erro fatal: {e}")
     finally:
         driver.quit()
-        log_info("Navegador fechado.")
+        print(f"\n{Fore.CYAN}🌐 Navegador fechado.{Style.RESET_ALL}")
+        print(ui.goodbye())
 
 if __name__ == "__main__":
     main()
