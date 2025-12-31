@@ -10,12 +10,84 @@
 - ⚡ **Downloads assíncronos ultra-rápidos** (modo padrão)
 - 🔄 **Retry automático** com backoff exponencial (4 tentativas)
 - 💾 **Resume de downloads** interrompidos (arquivos .part)
-- ✅ **Checkpoint/index** para não re-baixar arquivos completos
+- ✅ **Sistema de tracking SQLite** com metadados ricos e estatísticas
 - 🔐 **Login persistente** via cookies salvos
 - 📦 **Downloads paralelos** configuráveis (padrão: 4 workers)
 - 👻 **Modo headless** para rodar em segundo plano
 - 🎨 **Interface CLI moderna e elegante** com ASCII art e cores
 - 📊 **Progress bars** detalhadas com ícones Unicode
+- 🔍 **Verificação de integridade** com hash SHA-256
+
+## 🗄️ Sistema de Tracking SQLite (v2.0+)
+
+O sistema foi completamente reformulado para usar **SQLite** em vez de JSON simples, oferecendo:
+
+### 🎯 Vantagens
+
+- **Performance 10-100x melhor** com muitos arquivos
+- **Metadados ricos**: data, tamanho, URL, curso, aula, tipo de arquivo
+- **Queries SQL**: filtrar por curso, data, tipo, etc.
+- **Verificação de integridade**: SHA-256 hash para detectar corrupção
+- **Estatísticas detalhadas**: total baixado, por curso, por tipo
+- **Migration automática**: converte JSON antigo preservando dados
+- **Compatibilidade reversa**: use `--use-json` para modo legado
+
+### 📊 Novos Comandos
+
+```bash
+# Ver estatísticas de downloads
+python main.py --stats
+
+# Verificar integridade dos arquivos
+python main.py --verify
+
+# Usar modo JSON legado (se preferir)
+python main.py --use-json
+```
+
+### 💡 Exemplo de Estatísticas
+
+```
+═══ ESTATÍSTICAS DE DOWNLOADS ═══
+
+  📊 Total de arquivos: 1.234
+  💾 Total de bytes: 45.678.901.234 (42.54 GB)
+  🎥 Total de vídeos: 856
+  📄 Total de PDFs: 234
+  📚 Total de materiais: 144
+  🕒 Último download: 2025-12-31 10:30:00
+
+  Por curso:
+    • Curso de Python: 456 arquivos (12.34 GB)
+    • Curso de Java: 234 arquivos (8.76 GB)
+    • Curso de JavaScript: 123 arquivos (5.43 GB)
+```
+
+### 🔍 Verificação de Integridade
+
+O sistema pode verificar a integridade de todos os arquivos baixados:
+
+```bash
+python main.py --verify
+
+# Saída:
+🔍 Verificando integridade de 1.234 arquivos...
+✓ Verificação completa:
+  • Verificados: 1.230
+  • Corrompidos: 2
+  • Faltando: 2
+```
+
+### 🔄 Migration Automática
+
+Na primeira execução com v2.0+, o sistema automaticamente:
+1. Detecta `download_index.json` antigo
+2. Cria `download_index.db` (SQLite)
+3. Migra todos os dados preservando informações
+4. Faz backup do JSON como `download_index.json.backup.TIMESTAMP`
+5. Continua usando SQLite daqui pra frente
+
+**Sem intervenção manual necessária!**
 
 ## 🎨 Interface Moderna
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 
 # Use orjson for 10x faster JSON if available, fallback to stdlib
 try:
@@ -38,6 +39,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from tqdm import tqdm
 
 from async_downloader import run_async_downloads, DownloadIndex
+from download_database import DownloadDatabase
 import ui
 from compress_videos import compress_video_task, find_videos, format_size, check_ffmpeg
 
@@ -164,12 +166,12 @@ def load_cookies(driver: WebDriver, path: str) -> bool:
         log_warn(f"Erro ao carregar cookies: {e}")
         return False
 
-def download_file_task(task: dict[str, str], index: DownloadIndex = None) -> str:
+def download_file_task(task: dict[str, str], index: DownloadIndex | DownloadDatabase = None) -> str:
     """Função individual de download executada em thread com retry e resume.
 
     Args:
-        task: Dicionário com url, path, filename, referer.
-        index: DownloadIndex para checkpoint (opcional).
+        task: Dicionário com url, path, filename, referer, course_name, lesson_name, file_type.
+        index: DownloadIndex ou DownloadDatabase para checkpoint (opcional).
 
     Returns:
         Mensagem de status do download.
@@ -179,14 +181,28 @@ def download_file_task(task: dict[str, str], index: DownloadIndex = None) -> str
     filename = task['filename']
     referer = task.get('referer')
 
+    # Extract metadata for DownloadDatabase
+    course_name = task.get('course_name', 'Unknown')
+    lesson_name = task.get('lesson_name', 'Unknown')
+    file_type = task.get('file_type', 'unknown')
+
     # Verifica checkpoint primeiro
-    if index and index.is_completed(path):
+    if index and index.is_downloaded(path):
         return f"{Fore.YELLOW}Já indexado (pulado): {filename}"
 
     # Verifica se arquivo final já existe
     if os.path.exists(path):
         if index:
-            index.mark_completed(path)
+            if isinstance(index, DownloadDatabase):
+                index.mark_downloaded(
+                    file_path=path,
+                    url=url,
+                    course_name=course_name,
+                    lesson_name=lesson_name,
+                    file_type=file_type
+                )
+            else:
+                index.mark_completed(path)
         return f"{Fore.YELLOW}Já existe (pulado): {filename}"
 
     temp_path = path + ".part"
@@ -216,7 +232,16 @@ def download_file_task(task: dict[str, str], index: DownloadIndex = None) -> str
                 if os.path.exists(temp_path):
                     os.rename(temp_path, path)
                 if index:
-                    index.mark_completed(path)
+                    if isinstance(index, DownloadDatabase):
+                        index.mark_downloaded(
+                            file_path=path,
+                            url=url,
+                            course_name=course_name,
+                            lesson_name=lesson_name,
+                            file_type=file_type
+                        )
+                    else:
+                        index.mark_completed(path)
                 return (True, f"{Fore.GREEN}Resumido (completo): {filename}")
 
             response.raise_for_status()
@@ -244,7 +269,16 @@ def download_file_task(task: dict[str, str], index: DownloadIndex = None) -> str
             # Download completo, renomeia .part para nome final
             os.rename(temp_path, path)
             if index:
-                index.mark_completed(path)
+                if isinstance(index, DownloadDatabase):
+                    index.mark_downloaded(
+                        file_path=path,
+                        url=url,
+                        course_name=course_name,
+                        lesson_name=lesson_name,
+                        file_type=file_type
+                    )
+                else:
+                    index.mark_completed(path)
             return (True, f"{Fore.GREEN}Baixado: {filename}")
 
         except requests.exceptions.RequestException as e:
@@ -275,21 +309,27 @@ def download_file_task(task: dict[str, str], index: DownloadIndex = None) -> str
                 pass
         return f"{Fore.RED}Falha ao baixar {filename}: {e}"
 
-def process_download_queue(queue: list[dict[str, str]], base_dir: str) -> None:
+def process_download_queue(queue: list[dict[str, str]], base_dir: str, use_sqlite: bool = True) -> None:
     """Gerencia a fila de downloads usando ThreadPoolExecutor com checkpoint.
 
     Args:
         queue: Lista de tarefas de download.
         base_dir: Diretório base para salvar o index.
+        use_sqlite: Se True usa SQLite (default), se False usa JSON fallback.
     """
     if not queue:
         return
 
     # Inicializa o sistema de checkpoint
-    index = DownloadIndex(base_dir)
+    if use_sqlite:
+        index = DownloadDatabase(base_dir, use_sqlite=True)
+        log_info("Usando sistema de tracking SQLite (com metadados)")
+    else:
+        index = DownloadIndex(base_dir)
+        log_info("Usando sistema de tracking JSON (legado)")
 
     # Filtra arquivos já completos
-    pending = [t for t in queue if not index.is_completed(t['path']) and not os.path.exists(t['path'])]
+    pending = [t for t in queue if not index.is_downloaded(t['path']) and not os.path.exists(t['path'])]
 
     if not pending:
         log_info("Todos os arquivos já foram baixados.")
@@ -415,7 +455,10 @@ def scrape_lesson_data(
                 "url": url,
                 "path": os.path.join(lesson_path, fname),
                 "filename": fname,
-                "referer": current_referer
+                "referer": current_referer,
+                "course_name": course_title,
+                "lesson_name": lesson_title,
+                "file_type": "pdf"
             })
     except Exception as e:
         log_warn(f"Erro ao ler PDFs: {e}")
@@ -524,7 +567,10 @@ def scrape_lesson_data(
                             "url": url,
                             "path": os.path.join(lesson_path, fname),
                             "filename": fname,
-                            "referer": driver.current_url
+                            "referer": driver.current_url,
+                            "course_name": course_title,
+                            "lesson_name": lesson_title,
+                            "file_type": "material"
                         })
                     except Exception:
                         pass
@@ -547,7 +593,10 @@ def scrape_lesson_data(
                             "url": video_url,
                             "path": os.path.join(lesson_path, fname),
                             "filename": fname,
-                            "referer": driver.current_url
+                            "referer": driver.current_url,
+                            "course_name": course_title,
+                            "lesson_name": lesson_title,
+                            "file_type": "video"
                         })
                         found = True
                         break
@@ -566,7 +615,10 @@ def scrape_lesson_data(
                             "url": btn['href'],
                             "path": os.path.join(lesson_path, fname),
                             "filename": fname,
-                            "referer": vid_data['url']
+                            "referer": vid_data['url'],
+                            "course_name": course_title,
+                            "lesson_name": lesson_title,
+                            "file_type": "material"
                         })
                     elif 'Slides' in btn['text']:
                         fname = f"{sanitized_lesson}_{sanitized_vid_title}_Slides_{idx}.pdf"
@@ -574,7 +626,10 @@ def scrape_lesson_data(
                             "url": btn['href'],
                             "path": os.path.join(lesson_path, fname),
                             "filename": fname,
-                            "referer": vid_data['url']
+                            "referer": vid_data['url'],
+                            "course_name": course_title,
+                            "lesson_name": lesson_title,
+                            "file_type": "material"
                         })
                     elif 'Mapa' in btn['text']:
                         fname = f"{sanitized_lesson}_{sanitized_vid_title}_Mapa_{idx}.pdf"
@@ -582,7 +637,10 @@ def scrape_lesson_data(
                             "url": btn['href'],
                             "path": os.path.join(lesson_path, fname),
                             "filename": fname,
-                            "referer": vid_data['url']
+                            "referer": vid_data['url'],
+                            "course_name": course_title,
+                            "lesson_name": lesson_title,
+                            "file_type": "material"
                         })
 
                 # Adiciona link de vídeo se encontrado
@@ -594,7 +652,10 @@ def scrape_lesson_data(
                             "url": link['href'],
                             "path": os.path.join(lesson_path, fname),
                             "filename": fname,
-                            "referer": vid_data['url']
+                            "referer": vid_data['url'],
+                            "course_name": course_title,
+                            "lesson_name": lesson_title,
+                            "file_type": "video"
                         })
                         break  # Pega apenas a melhor qualidade
 
@@ -742,6 +803,9 @@ Recursos:
     parser.add_argument('--headless', action='store_true', help="Executa o navegador em modo oculto")
     parser.add_argument('--workers', type=int, default=MAX_WORKERS, help="Número de downloads paralelos (padrão: 4)")
     parser.add_argument('--sync', action='store_true', help="Usa modo síncrono em vez de async (mais lento)")
+    parser.add_argument('--use-json', action='store_true', help="Usa tracking JSON em vez de SQLite (modo legado)")
+    parser.add_argument('--verify', action='store_true', help="Verifica integridade dos arquivos baixados (SHA-256)")
+    parser.add_argument('--stats', action='store_true', help="Mostra estatísticas de downloads e sai")
     args = parser.parse_args()
 
     # Async é o padrão agora
@@ -752,8 +816,70 @@ Recursos:
     # Expande o '~' se o usuário passar um caminho relativo, mas usa o absoluto se for o default
     save_dir = os.path.expanduser(args.dir)
 
+    # Handle --stats command
+    if args.stats:
+        if args.use_json:
+            print(f"{Fore.YELLOW}⚠ AVISO:{Style.RESET_ALL} Estatísticas detalhadas requerem SQLite. Use sem --use-json.")
+            db = DownloadDatabase(save_dir, use_sqlite=False)
+        else:
+            db = DownloadDatabase(save_dir, use_sqlite=True)
+            stats = db.get_statistics()
+
+            print(f"\n{Fore.CYAN}═══ ESTATÍSTICAS DE DOWNLOADS ═══{Style.RESET_ALL}\n")
+            print(f"  📊 Total de arquivos: {Fore.GREEN}{stats.get('total_files', 0)}{Style.RESET_ALL}")
+            print(f"  💾 Total de bytes: {Fore.GREEN}{stats.get('total_bytes', 0):,}{Style.RESET_ALL} ({stats.get('total_bytes', 0) / (1024**3):.2f} GB)")
+            print(f"  🎥 Total de vídeos: {Fore.GREEN}{stats.get('total_videos', 0)}{Style.RESET_ALL}")
+            print(f"  📄 Total de PDFs: {Fore.GREEN}{stats.get('total_pdfs', 0)}{Style.RESET_ALL}")
+            print(f"  📚 Total de materiais: {Fore.GREEN}{stats.get('total_materials', 0)}{Style.RESET_ALL}")
+            print(f"  🕒 Último download: {Fore.CYAN}{stats.get('last_download_at', 'N/A')}{Style.RESET_ALL}")
+
+            if 'by_course' in stats and stats['by_course']:
+                print(f"\n  {Fore.CYAN}Por curso:{Style.RESET_ALL}")
+                for course_stat in stats['by_course'][:10]:  # Top 10
+                    print(f"    • {course_stat['course']}: {course_stat['files']} arquivos ({course_stat['bytes'] / (1024**2):.2f} MB)")
+
+            print()
+        return
+
+    # Handle --verify command
+    if args.verify:
+        if args.use_json:
+            print(f"{Fore.YELLOW}⚠ AVISO:{Style.RESET_ALL} Verificação de integridade requer SQLite. Use sem --use-json.")
+            return
+
+        db = DownloadDatabase(save_dir, use_sqlite=True)
+        unverified = db.get_unverified_files()
+
+        if not unverified:
+            print(f"\n{Fore.GREEN}✓ Todos os arquivos já foram verificados!{Style.RESET_ALL}\n")
+            return
+
+        print(f"\n{Fore.CYAN}🔍 Verificando integridade de {len(unverified)} arquivos...{Style.RESET_ALL}\n")
+
+        verified = 0
+        corrupted = 0
+        missing = 0
+
+        for file_path in tqdm(unverified, desc="Verificando", unit=" arq", colour='cyan'):
+            is_valid, message = db.verify_file_integrity(file_path)
+            if is_valid:
+                verified += 1
+            elif "não existe" in message:
+                missing += 1
+                tqdm.write(f"{Fore.RED}✗ Faltando:{Style.RESET_ALL} {Path(file_path).name}")
+            else:
+                corrupted += 1
+                tqdm.write(f"{Fore.RED}✗ Corrompido:{Style.RESET_ALL} {Path(file_path).name} - {message}")
+
+        print(f"\n{Fore.GREEN}✓ Verificação completa:{Style.RESET_ALL}")
+        print(f"  • {Fore.GREEN}Verificados: {verified}{Style.RESET_ALL}")
+        print(f"  • {Fore.RED}Corrompidos: {corrupted}{Style.RESET_ALL}")
+        print(f"  • {Fore.YELLOW}Faltando: {missing}{Style.RESET_ALL}\n")
+        return
+
     # Banner e configurações
     mode_label = "Async" if args.use_async else "Síncrono"
+    tracking_label = "JSON (legado)" if args.use_json else "SQLite (com metadados)"
 
     if args.headless:
         print(ui.simple_banner())
@@ -761,6 +887,7 @@ Recursos:
         print(ui.banner())
 
     print("\n" + ui.config_panel(mode_label, MAX_WORKERS, save_dir))
+    print(f"  📊 Tracking: {Fore.CYAN}{tracking_label}{Style.RESET_ALL}")
     print()
 
     driver = get_driver(headless=args.headless)
@@ -806,10 +933,11 @@ Recursos:
 
                 # 2. Baixa (Paralelo ou Async)
                 if queue:
+                    use_sqlite = not args.use_json  # Use SQLite unless --use-json is specified
                     if args.use_async:
-                        run_async_downloads(queue, save_dir, MAX_WORKERS)
+                        run_async_downloads(queue, save_dir, MAX_WORKERS, use_sqlite)
                     else:
-                        process_download_queue(queue, save_dir)
+                        process_download_queue(queue, save_dir, use_sqlite)
                 else:
                     log_warn("  Nenhum arquivo encontrado nesta aula.")
 
