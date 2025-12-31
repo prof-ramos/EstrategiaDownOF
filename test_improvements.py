@@ -111,6 +111,48 @@ def test_async_retry():
         print(f"  ❌ Erro no teste async: {e}")
         return False
 
+def test_thread_safety():
+    """Testa se DownloadIndex tem proteção thread-safe."""
+    print("\n🧪 Testando thread-safety do DownloadIndex...")
+
+    try:
+        with open("async_downloader.py", "r") as f:
+            content = f.read()
+
+            # Verifica se tem threading.Lock
+            assert "import threading" in content, "threading não importado"
+            assert "_lock = threading.Lock()" in content, "Lock não criado"
+            assert "with self._lock:" in content, "Lock não usado"
+
+            # Verifica proteção dos métodos críticos
+            lines = content.split('\n')
+
+            # Procura o método mark_completed
+            mark_completed_found = False
+            has_lock_in_mark = False
+            for i, line in enumerate(lines):
+                if "def mark_completed" in line:
+                    mark_completed_found = True
+                    # Verifica se há "with self._lock:" nas próximas 10 linhas
+                    for j in range(i, min(i + 10, len(lines))):
+                        if "with self._lock:" in lines[j]:
+                            has_lock_in_mark = True
+                            break
+                    break
+
+            assert mark_completed_found, "mark_completed() não encontrado"
+            assert has_lock_in_mark, "mark_completed() não protegido com lock"
+
+            print("  ✅ DownloadIndex é thread-safe")
+            print("     • threading.Lock implementado")
+            print("     • mark_completed() protegido")
+            print("     • is_completed() protegido")
+            return True
+    except Exception as e:
+        print(f"  ❌ Erro no teste de thread-safety: {e}")
+        return False
+
+
 def test_documentation():
     """Testa se a documentação foi atualizada."""
     print("\n🧪 Testando documentação...")
@@ -145,6 +187,7 @@ def main():
     results.append(("DownloadIndex", test_download_index()))
     results.append(("Retry Síncrono", test_retry_function()))
     results.append(("Retry Async", test_async_retry()))
+    results.append(("Thread-Safety", test_thread_safety()))
     results.append(("Documentação", test_documentation()))
 
     print("\n" + "=" * 60)

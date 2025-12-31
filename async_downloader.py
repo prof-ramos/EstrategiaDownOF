@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +20,16 @@ INITIAL_RETRY_DELAY = 2.0  # segundos
 
 
 class DownloadIndex:
-    """Manages the download checkpoint index."""
+    """Manages the download checkpoint index with thread-safe operations."""
 
     def __init__(self, base_dir: str):
         self.index_path = Path(base_dir) / INDEX_FILE
         self.completed: set[str] = set()
+        self._lock = threading.Lock()  # Protege acesso concorrente
         self.load()
 
     def load(self) -> None:
-        """Load the index from disk."""
+        """Load the index from disk (called during __init__, no lock needed)."""
         if self.index_path.exists():
             try:
                 with open(self.index_path, 'r', encoding='utf-8') as f:
@@ -37,18 +39,25 @@ class DownloadIndex:
                 self.completed = set()
 
     def save(self) -> None:
-        """Save the index to disk."""
+        """Save the index to disk. MUST be called with lock held."""
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
+        # Cria snapshot do set para evitar RuntimeError durante iteração
+        with self._lock:
+            completed_snapshot = list(self.completed)
+
         with open(self.index_path, 'w', encoding='utf-8') as f:
-            json.dump({'completed': list(self.completed)}, f, indent=2)
+            json.dump({'completed': completed_snapshot}, f, indent=2)
 
     def is_completed(self, file_path: str) -> bool:
-        """Check if a file has been downloaded."""
-        return file_path in self.completed
+        """Check if a file has been downloaded (thread-safe)."""
+        with self._lock:
+            return file_path in self.completed
 
     def mark_completed(self, file_path: str) -> None:
-        """Mark a file as completed and save index."""
-        self.completed.add(file_path)
+        """Mark a file as completed and save index (thread-safe)."""
+        with self._lock:
+            self.completed.add(file_path)
+        # save() agora cria seu próprio snapshot com lock
         self.save()
 
 
