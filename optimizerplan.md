@@ -1,10 +1,9 @@
 # Performance Optimization Plan
+
 ## EstrategiaDownloader - Comprehensive Performance Improvement Roadmap
 
-**Project**: EstrategiaDownloader
-**Date Created**: 2025-12-31
-**Target**: 60-70% overall performance improvement
-**Priority**: High Impact, Low Effort optimizations first
+**Project**: EstrategiaDownloader **Date Created**: 2025-12-31 **Target**: 60-70% overall
+performance improvement **Priority**: High Impact, Low Effort optimizations first
 
 ---
 
@@ -25,9 +24,8 @@
 
 ### 1.1 Add HTTP Compression Headers
 
-**Impact**: 🔴 Very High (60-70% bandwidth reduction)
-**Effort**: 🟢 Very Low (5 minutes)
-**Files**: `main.py:131-136`, `async_downloader.py:89-94`
+**Impact**: 🔴 Very High (60-70% bandwidth reduction) **Effort**: 🟢 Very Low (5 minutes) **Files**:
+`main.py:131-136`, `async_downloader.py:89-94`
 
 #### Current Code (main.py:131-136)
 
@@ -38,7 +36,7 @@ headers = {
 }
 ```
 
-#### Optimized Code
+#### Optimized Code (1.1)
 
 ```python
 headers = {
@@ -49,13 +47,13 @@ headers = {
 }
 ```
 
-#### Implementation Steps
+#### Implementation Steps (1.1)
 
 1. Update headers in `download_file_task()` function
 2. Update headers in `download_file_async()` function
 3. Test with a sample download to verify compression
 
-#### Success Metrics
+#### Success Metrics (HTTP Compression)
 
 - [ ] Response headers show `Content-Encoding: gzip`
 - [ ] Download size reduced by 60-70% for PDFs
@@ -65,9 +63,8 @@ headers = {
 
 ### 1.2 Optimize Filename Sanitization
 
-**Impact**: 🟡 Medium (60% faster sanitization)
-**Effort**: 🟢 Very Low (10 minutes)
-**Files**: `main.py:74-80`
+**Impact**: 🟡 Medium (60% faster sanitization) **Effort**: 🟢 Very Low (10 minutes) **Files**:
+`main.py:74-80`
 
 #### Current Code (main.py:74-80)
 
@@ -81,7 +78,7 @@ def sanitize_filename(original_filename: str) -> str:
     return sanitized.strip()  # Redundant
 ```
 
-#### Optimized Code
+#### Optimized Code (1.2)
 
 ```python
 import string
@@ -103,13 +100,13 @@ def sanitize_filename(original_filename: str) -> str:
     return sanitized.strip('._')
 ```
 
-#### Implementation Steps
+#### Implementation Steps (Filename Sanitization)
 
 1. Add `_FILENAME_TRANS` constant after imports
 2. Replace `sanitize_filename()` function
 3. Run tests on various filenames with special characters
 
-#### Success Metrics
+#### Success Metrics (Filename Sanitization)
 
 - [ ] All existing filenames sanitize correctly
 - [ ] 60% reduction in sanitization time (benchmark with 1000 filenames)
@@ -119,8 +116,7 @@ def sanitize_filename(original_filename: str) -> str:
 
 ### 1.3 JavaScript-Based Video Extraction
 
-**Impact**: 🔴 Very High (70-80% scraping time reduction)
-**Effort**: 🟡 Medium (2-3 hours)
+**Impact**: 🔴 Very High (70-80% scraping time reduction) **Effort**: 🟡 Medium (2-3 hours)
 **Files**: `main.py:290-378`
 
 #### Current Approach (main.py:311-374)
@@ -263,14 +259,14 @@ def scrape_lesson_data(...) -> list[dict[str, str]]:
     return download_queue
 ```
 
-#### Implementation Steps
+#### Implementation Steps (Video Extraction)
 
 1. Test JavaScript extraction on one lesson first
 2. Add logging to compare old vs new extraction times
 3. Implement fallback for cases where JS extraction fails
 4. Verify all video links are captured correctly
 
-#### Success Metrics
+#### Success Metrics (Video Extraction)
 
 - [ ] Video extraction time reduced from 5-10s per video to <1s total
 - [ ] All video download links captured correctly
@@ -280,9 +276,8 @@ def scrape_lesson_data(...) -> list[dict[str, str]]:
 
 ### 1.4 Install uvloop for Async Mode
 
-**Impact**: 🔴 High (30-40% faster async operations)
-**Effort**: 🟢 Very Low (5 minutes)
-**Files**: `async_downloader.py:1-10`, `requirements.txt`
+**Impact**: 🔴 High (30-40% faster async operations) **Effort**: 🟢 Very Low (5 minutes) **Files**:
+`async_downloader.py:1-10`, `requirements.txt`
 
 #### Installation
 
@@ -320,14 +315,14 @@ if sys.platform != 'win32':
 uvloop>=0.19.0; sys_platform != 'win32'
 ```
 
-#### Implementation Steps
+#### Implementation Steps (uvloop)
 
 1. Add uvloop to requirements.txt
 2. Install with `pip install uvloop`
 3. Add uvloop setup code to async_downloader.py
 4. Test async mode with `--async` flag
 
-#### Success Metrics
+#### Success Metrics (uvloop)
 
 - [ ] Async downloads 30-40% faster (benchmark with 20 files)
 - [ ] No errors on macOS
@@ -337,9 +332,7 @@ uvloop>=0.19.0; sys_platform != 'win32'
 
 ### 1.5 Fix Redundant Operations
 
-**Impact**: 🟢 Low
-**Effort**: 🟢 Very Low (2 minutes)
-**Files**: `main.py:80`
+**Impact**: 🟢 Low **Effort**: 🟢 Very Low (2 minutes) **Files**: `main.py:80`
 
 #### Quick Fix
 
@@ -362,17 +355,16 @@ return sanitized.strip('._- ')
 
 ### 2.1 Implement orjson for Cookie Operations
 
-**Impact**: 🟡 Medium (10x faster JSON parsing)
-**Effort**: 🟢 Low (30 minutes)
-**Files**: `main.py:82-112`
+**Impact**: 🟡 Medium (10x faster JSON parsing) **Effort**: 🟢 Low (30 minutes) **Files**:
+`main.py:82-112`
 
-#### Installation
+#### Implementation (orjson)
 
 ```bash
 pip install orjson
 ```
 
-#### Code Changes
+#### Code Changes (2.1)
 
 ```python
 import orjson
@@ -409,7 +401,7 @@ def load_cookies(driver: WebDriver, path: str) -> bool:
         return False
 ```
 
-#### Success Metrics
+#### Success Metrics (orjson)
 
 - [ ] Cookie save/load 10x faster
 - [ ] All cookies preserved correctly
@@ -419,9 +411,8 @@ def load_cookies(driver: WebDriver, path: str) -> bool:
 
 ### 2.2 Batch Index Updates
 
-**Impact**: 🟡 Medium (50% less disk I/O)
-**Effort**: 🟢 Low (1 hour)
-**Files**: `async_downloader.py:19-50`
+**Impact**: 🟡 Medium (50% less disk I/O) **Effort**: 🟢 Low (1 hour) **Files**:
+`async_downloader.py:19-50`
 
 #### Current Code
 
@@ -432,7 +423,7 @@ def mark_completed(self, file_path: str) -> None:
     self.save()  # ← Writes to disk EVERY time!
 ```
 
-#### Optimized Code
+#### Optimized Code (2.2)
 
 ```python
 class DownloadIndex:
@@ -480,14 +471,14 @@ class DownloadIndex:
         self.save()
 ```
 
-#### Implementation Steps
+#### Implementation Steps (Batch Index)
 
 1. Add batching logic to DownloadIndex
 2. Update async download loop to batch completions
 3. Add `__del__` to ensure final save on exit
 4. Test with Ctrl+C interruption
 
-#### Success Metrics
+#### Success Metrics (Batch Index)
 
 - [ ] Disk writes reduced by 50-70%
 - [ ] No lost progress on interruption
@@ -497,9 +488,8 @@ class DownloadIndex:
 
 ### 2.3 Add Performance Monitoring
 
-**Impact**: 🟡 Medium (enables data-driven optimization)
-**Effort**: 🟡 Medium (2 hours)
-**Files**: New file `performance_monitor.py`
+**Impact**: 🟡 Medium (enables data-driven optimization) **Effort**: 🟡 Medium (2 hours) **Files**:
+New file `performance_monitor.py`
 
 #### Create performance_monitor.py
 
@@ -621,7 +611,7 @@ def main() -> None:
         log_info("Navegador fechado.")
 ```
 
-#### Success Metrics
+#### Success Metrics (Monitoring)
 
 - [ ] Performance report printed after each run
 - [ ] Timing data helps identify new bottlenecks
@@ -631,11 +621,10 @@ def main() -> None:
 
 ### 2.4 Implement Adaptive Timeouts
 
-**Impact**: 🟡 Medium (better handling of large files)
-**Effort**: 🟢 Low (30 minutes)
-**Files**: `main.py:139`, `async_downloader.py:171`
+**Impact**: 🟡 Medium (better handling of large files) **Effort**: 🟢 Low (30 minutes) **Files**:
+`main.py:139`, `async_downloader.py:171`
 
-#### Code Changes
+#### Code Changes (2.4)
 
 ```python
 def download_file_task(task: dict[str, str]) -> str:
@@ -665,8 +654,7 @@ def download_file_task(task: dict[str, str]) -> str:
 
 ### 3.1 Migrate from Selenium to Playwright
 
-**Impact**: 🔴 Very High (50% faster, 30% less memory)
-**Effort**: 🔴 High (1-2 weeks)
+**Impact**: 🔴 Very High (50% faster, 30% less memory) **Effort**: 🔴 High (1-2 weeks)
 
 #### Why Playwright?
 
@@ -719,8 +707,7 @@ async def scrape_with_playwright():
 
 ### 3.2 Implement Headless Browser Pool
 
-**Impact**: 🔴 High (reuse browsers, 40% faster)
-**Effort**: 🔴 High (1 week)
+**Impact**: 🔴 High (reuse browsers, 40% faster) **Effort**: 🔴 High (1 week)
 
 #### Concept
 
@@ -751,8 +738,7 @@ finally:
 
 ### 3.3 Add Distributed Processing (Ray/Celery)
 
-**Impact**: 🔴 Very High (linear scaling across machines)
-**Effort**: 🔴 Very High (2-3 weeks)
+**Impact**: 🔴 Very High (linear scaling across machines) **Effort**: 🔴 Very High (2-3 weeks)
 
 #### Use Case
 
@@ -812,6 +798,7 @@ results = ray.get([
 ### Benchmarking Script
 
 Create `benchmark.py`:
+
 ```python
 #!/usr/bin/env python3
 """Benchmark script to measure performance improvements."""
@@ -913,41 +900,70 @@ cp async_downloader.py async_downloader_backup_2025-12-31.py
 
 ## Performance Targets
 
-### Current Baseline (Before Optimization)
+The following targets are based on a representative "Standard Lesson" (1 PDF, 5 Videos, ~500MB total
+data).
 
-| Metric | Value |
-|--------|-------|
-| Time per lesson | ~30s |
-| Memory peak | ~1000MB |
-| Download speed | ~5 MB/s per worker |
-| Scraping time | 70% of total |
-| Download time | 30% of total |
+### Current Baseline (Version 1.0)
 
-### Target After Phase 1 (Week 1)
+_Measured using standard Selenium navigation and `requests` without compression._
 
-| Metric | Target | Improvement |
-|--------|--------|-------------|
-| Time per lesson | ~10s | **67% faster** |
-| Memory peak | ~800MB | 20% less |
-| Download speed | ~8 MB/s per worker | 60% faster (compression) |
-| Scraping time | 30% of total | 57% reduction |
-| Download time | 70% of total | Shifted focus |
+| Metric          | Value              | Notes                                 |
+| --------------- | ------------------ | ------------------------------------- |
+| Time per lesson | ~30s               | Scraping: 25s, Setup: 5s              |
+| Memory peak     | ~1000MB            | Standard Chrome instance              |
+| Download speed  | ~5 MB/s per worker | Uncompressed streams                  |
+| Scraping ratio  | 70% of total       | Page loads are the primary bottleneck |
 
-### Target After Phase 2 (Week 3)
+---
 
-| Metric | Target | Improvement |
-|--------|--------|-------------|
-| Time per lesson | ~8s | **73% faster** |
-| Memory peak | ~700MB | 30% less |
-| Disk I/O | 50% less | Batch updates |
+### Target After Phase 1 (Quick Wins)
 
-### Target After Phase 3 (Month 2+)
+#### Target After Phase 1
 
-| Metric | Target | Improvement |
-|--------|--------|-------------|
-| Time per lesson | ~5s | **83% faster** |
-| Memory peak | ~600MB | 40% less |
-| Scalability | Linear | Multiple courses in parallel |
+| Optimization            | Savings (Est.) | Method / Source                    |
+| ----------------------- | -------------- | ---------------------------------- |
+| JS Video Extraction     | **-18.0s**     | Single script vs 5-6 page loads    |
+| HTTP Compression        | **-1.5s**      | Reduced metadata transfer overhead |
+| uvloop (Async Policy)   | **-0.5s**      | Faster event loop scheduling       |
+| **Total Estimated Gap** | **-20.0s**     | **Arithmetic: 30s - 20s = 10s**    |
+
+- **Assumptions**: Average 5 videos per lesson. Network latency <100ms.
+- **How to Measure**: Compare `scrape_lesson_data` timing log before/after JS implementation.
+
+---
+
+### Target After Phase 2 (Medium-Term)
+
+#### Target After Phase 2
+
+| Optimization            | Savings (Est.) | Method / Source                       |
+| ----------------------- | -------------- | ------------------------------------- |
+| Batch Index Updates     | **-1.5s**      | Reduced Disk I/O waits (from Phase 1) |
+| orjson optimization     | **-0.5s**      | 10x faster JSON parsing/serialization |
+| **Total Estimated Gap** | **-2.0s**      | **Arithmetic: 10s - 2s = 8s**         |
+
+- **Assumptions**: SSD storage. Index size >50KB.
+- **How to Measure**: Use `performance_monitor.py` to compare `DownloadIndex.save` frequency and
+  duration.
+
+---
+
+### Target After Phase 3 (Long-Term)
+
+#### Target After Phase 3
+
+| Optimization            | Savings (Est.) | Method / Source                       |
+| ----------------------- | -------------- | ------------------------------------- |
+| Playwright Migration    | **-3.0s**      | Native async & faster browser startup |
+| Browser Pooling         | **-0.0s\***    | Improves throughput, not latency      |
+| **Total Estimated Gap** | **-3.0s**      | **Arithmetic: 8s - 3s = 5s**          |
+
+- **Assumptions**: High-concurrency scenario.
+- **Note on Scalability**: Phase 3 focuses on **throughput** (linear scaling) rather than just
+  latency.
+- **How to Measure**: Execute `benchmark.py` with `--parallel-courses` flag.
+
+---
 
 ---
 
@@ -972,9 +988,10 @@ cp async_downloader.py async_downloader_backup_2025-12-31.py
 ### 2025-12-31 - Phase 1 COMPLETED! 🎉
 
 **All Phase 1 Optimizations Completed:**
+
 - ✅ HTTP compression headers (gzip, deflate, br) - Expected 60-70% bandwidth reduction
 - ✅ Filename sanitization optimized (single-pass with str.maketrans)
-- ✅ **JavaScript video extraction** - Expected 70-80% faster scraping ⚡
+- 🔄 JavaScript video extraction (70-80% faster scraping) - **HIGHEST PRIORITY**
   - Eliminated N×5-10s page loads per video
   - Single JavaScript execution extracts all video metadata
   - Smart fallback for edge cases
@@ -985,16 +1002,19 @@ cp async_downloader.py async_downloader_backup_2025-12-31.py
 - ✅ Retry logic with exponential backoff (4 attempts)
 - ✅ Resume support with .part files
 
-**Phase 2 Optimizations (Bonus - Already Done):**
+#### Phase 1 COMPLETE! 🎉
+
 - ✅ orjson for cookies (10x faster)
 - ✅ Batch index updates (50% less I/O)
 - ✅ Compression headers validation
 
-**Branch Cleanup:**
+#### Branch Cleanup
+
 - Deleted merged branch: `claude/persistent-login-cookies-1ZKrf`
 - Repository clean with only `main` branch
 
-**Next Steps:**
+#### Next Steps (Progress)
+
 1. ✅ ~~Implement JavaScript video extraction~~ **COMPLETE**
 2. 🎯 Run benchmarks to measure actual performance gains
 3. 📊 Add performance monitoring system (Item 2.3)
@@ -1002,15 +1022,13 @@ cp async_downloader.py async_downloader_backup_2025-12-31.py
 
 ### [Date] - After Phase 1
 
-_[Update with actual results after benchmarks]_
+Update with actual results after benchmarks
 
 ### [Date] - After Phase 2
 
-_[Update with actual results]_
+Update with actual results
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2025-12-31
-**Owner**: Development Team
-**Status**: Ready for Implementation
+**Document Version**: 1.1 **Last Updated**: 2025-12-31 **Owner**: Development Team **Status**: Ready
+for Implementation

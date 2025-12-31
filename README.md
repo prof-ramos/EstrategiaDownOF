@@ -37,6 +37,7 @@ O downloader agora possui uma interface CLI elegante e profissional:
 ```
 
 **Features visuais:**
+
 - 📚 Headers com bordas arredondadas para cursos e aulas
 - ⚡ Progress bars animadas com ícones Unicode
 - ✓ Status coloridos (sucesso, aviso, erro)
@@ -44,6 +45,7 @@ O downloader agora possui uma interface CLI elegante e profissional:
 - 🎯 Design limpo e profissional
 
 **Demo da interface:**
+
 ```bash
 python demo_ui.py
 ```
@@ -135,6 +137,57 @@ python main.py --headless --workers 8 -d ~/Downloads/Cursos
 
 ---
 
+## 🎬 Compressão de Vídeos
+
+Após baixar os vídeos, você pode comprimi-los usando FFmpeg para economizar espaço:
+
+### Uso Básico
+
+```bash
+# Modo dry-run (mostra o que seria comprimido)
+python compress_videos.py --dry-run
+
+# Compressão padrão (H.265, qualidade balanceada)
+python compress_videos.py
+
+# Ou usando o wrapper shell
+./compress.sh
+```
+
+### Opções de Compressão
+
+| Argumento     | Descrição                                | Padrão        |
+| ------------- | ---------------------------------------- | ------------- |
+| `-d`, `--dir` | Diretório com os vídeos                  | Padrão iCloud |
+| `--quality`   | Preset: `high`, `balanced`, `small`      | `balanced`    |
+| `--codec`     | Codec: `h265` (menor) ou `h264` (compat) | `h265`        |
+| `--delete`    | Deletar originais após compressão        | Desabilitado  |
+| `--workers`   | Compressões em paralelo                  | `2`           |
+| `--dry-run`   | Mostra sem executar                      | Desabilitado  |
+
+### Presets de Qualidade
+
+- **high** (CRF 18): Visualmente sem perdas, arquivos maiores
+- **balanced** (CRF 23): Bom equilíbrio qualidade/tamanho (recomendado)
+- **small** (CRF 28): Arquivos menores, alguma perda de qualidade
+
+### Exemplos
+
+```bash
+# Alta qualidade, mantém originais
+python compress_videos.py --quality high
+
+# Máxima compressão, deleta originais
+python compress_videos.py --quality small --delete
+
+# H.264 para compatibilidade máxima
+python compress_videos.py --codec h264
+```
+
+> ⚠️ **Requisito:** FFmpeg deve estar instalado (`brew install ffmpeg`)
+
+---
+
 ## 📁 Estrutura de Arquivos Baixados
 
 ```
@@ -174,6 +227,7 @@ Se você interromper o script (Ctrl+C) ou ocorrer um erro:
 3. Na próxima execução, continua de onde parou
 
 **Exemplo:**
+
 ```bash
 # Primeira execução (interrompida)
 python main.py
@@ -237,6 +291,46 @@ python main.py --workers 8
 ```
 
 > ⚠️ **Atenção:** Muitos workers podem sobrecarregar sua conexão ou ser bloqueados pelo servidor.
+
+### Erro: No space left on device (Errno 28)
+
+Este erro ocorre quando o disco está cheio. O download será interrompido no ponto atual.
+
+**Soluções:**
+
+1. **Libere espaço no disco:**
+
+   ```bash
+   # Verificar espaço disponível
+   df -h
+
+   # Esvaziar lixeira no macOS
+   rm -rf ~/.Trash/*
+   ```
+
+2. **Mude o diretório de destino para um disco com mais espaço:**
+
+   ```bash
+   python main.py -d /Volumes/OutroDisco/Cursos
+   ```
+
+3. **Se usando iCloud Drive (padrão), verifique se há espaço na nuvem:**
+   - O diretório padrão salva em `~/Library/Mobile Documents/com~apple~CloudDocs/`
+   - Considere usar um diretório local se não precisar sincronizar
+
+> 💡 **Dica:** O sistema de checkpoint salva o progresso automaticamente. Após liberar espaço, basta
+> executar o script novamente - ele continuará de onde parou.
+
+### Erro: "Nenhum arquivo encontrado nesta aula"
+
+Este aviso aparece quando uma aula não possui arquivos para download. Isso pode ocorrer por:
+
+1. **Aula ainda não publicada** - O conteúdo será disponibilizado futuramente
+2. **Aula apenas com exercícios online** - Sem PDFs ou vídeos para baixar
+3. **Simulados futuros** - Datas como "03/01/2026" indicam conteúdo ainda não liberado
+
+> ℹ️ **Nota:** Este aviso é normal e não indica um problema. O script continua para a próxima aula
+> automaticamente.
 
 ---
 

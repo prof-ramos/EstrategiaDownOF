@@ -39,6 +39,7 @@ from tqdm import tqdm
 
 from async_downloader import run_async_downloads, DownloadIndex
 import ui
+from compress_videos import compress_video_task, find_videos, format_size, check_ffmpeg
 
 if TYPE_CHECKING:
     from selenium.webdriver.remote.webdriver import WebDriver
@@ -650,6 +651,74 @@ def get_lessons_list(driver: WebDriver, course_url: str) -> list[dict[str, str]]
 
 # --- Main ---
 
+def compress_course_videos(base_dir: str, course_title: str) -> None:
+    """Comprime todos os vídeos de um curso após download.
+
+    Args:
+        base_dir: Diretório base de downloads.
+        course_title: Título do curso para localizar a pasta.
+    """
+    from pathlib import Path
+    # Note: ThreadPoolExecutor is already imported at module level (line 26)
+
+    # Verifica se FFmpeg está disponível
+    if not check_ffmpeg():
+        log_warn("FFmpeg não encontrado. Pulando compressão de vídeos.")
+        return
+
+    # Localiza pasta do curso
+    sanitized_course = sanitize_filename(course_title)
+    course_path = Path(base_dir) / sanitized_course
+
+    if not course_path.exists():
+        return
+
+    # Encontra vídeos para comprimir
+    videos = find_videos(course_path)
+
+    if not videos:
+        log_info(f"Nenhum vídeo para comprimir em: {sanitized_course}")
+        return
+
+    log_info(f"🎬 Comprimindo {len(videos)} vídeos do curso: {course_title[:40]}...")
+
+    total_original = 0
+    total_compressed = 0
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(
+                compress_video_task,
+                video,
+                'h265',      # Codec padrão (melhor compressão)
+                'balanced',  # CRF 23
+                True,        # Deletar originais após comprimir
+                False        # Não é dry-run
+            ): video for video in videos
+        }
+
+        pbar_config = {
+            "desc": "  🗜️  Comprimindo",
+            "unit": " vídeo",
+            "colour": "magenta",
+            "bar_format": "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+        }
+
+        for future in tqdm(as_completed(futures), total=len(videos), **pbar_config):
+            success, message, orig_size, comp_size = future.result()
+            total_original += orig_size
+            total_compressed += comp_size
+
+            if success:
+                tqdm.write(f"{Fore.GREEN}  ✓ {message}{Style.RESET_ALL}")
+            else:
+                tqdm.write(f"{Fore.RED}  ✗ {message}{Style.RESET_ALL}")
+
+    if total_original > 0:
+        savings = total_original - total_compressed
+        log_success(f"Compressão concluída! Economia: {format_size(savings)}")
+
+
 def main() -> None:
     """Função principal do downloader."""
     global MAX_WORKERS
@@ -743,6 +812,13 @@ Recursos:
                         process_download_queue(queue, save_dir)
                 else:
                     log_warn("  Nenhum arquivo encontrado nesta aula.")
+
+            # Após terminar todas as aulas do curso, comprime os vídeos
+            try:
+                compress_course_videos(save_dir, course['title'])
+            except Exception as comp_error:
+                log_error(f"Falha na compressão do curso '{course['title']}': {comp_error}")
+                # Continua para o próximo curso mesmo se a compressão falhar
 
     except KeyboardInterrupt:
         print(f"\n\n{Fore.YELLOW}⚠  Interrompido pelo usuário.{Style.RESET_ALL}")

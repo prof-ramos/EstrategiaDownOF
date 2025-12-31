@@ -45,3 +45,6 @@ cookies.json
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# Claude settings local
+.claude/settings.local.json
