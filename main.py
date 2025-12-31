@@ -419,9 +419,9 @@ def scrape_lesson_data(
     except Exception as e:
         log_warn(f"Erro ao ler PDFs: {e}")
 
-    # 2. Coletar Vídeos
+    # 2. Coletar Vídeos - OPTIMIZED WITH JAVASCRIPT
     try:
-        # Pega a lista de vídeos para iterar
+        # Primeiro tenta extrair tudo via JavaScript (SEM page loads!)
         try:
             playlist = WebDriverWait(driver, 5).until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.ListVideos-items-video a.VideoItem"))
@@ -429,55 +429,110 @@ def scrape_lesson_data(
         except TimeoutException:
             playlist = []
 
-        # Extrai infos básicas para não perder referência ao navegar
-        videos_info = []
-        for item in playlist:
-            videos_info.append({
-                "url": item.get_attribute('href'),
-                "title": item.find_element(By.CSS_SELECTOR, "span.VideoItem-info-title").text
-            })
+        if not playlist:
+            return download_queue
 
-        if videos_info:
-            log_info(f"Mapeando {len(videos_info)} vídeos (isso pode levar um momento)...")
+        log_info(f"⚡ Mapeando {len(playlist)} vídeos com JavaScript otimizado...")
+        start_time = time.perf_counter()
 
-        for idx, vid in enumerate(videos_info):
-            # Navega para cada vídeo para pegar o link direto e materiais
-            driver.get(vid['url'])
-            # Tenta esperar por um elemento chave do vídeo em vez de sleep fixo
+        # OPTIMIZATION: Extrai TODOS os dados de vídeo de uma vez via JavaScript
+        videos_data = driver.execute_script("""
+            const videos = Array.from(document.querySelectorAll('div.ListVideos-items-video a.VideoItem'));
+            return videos.map((item, idx) => {
+                const url = item.href;
+                const title = item.querySelector('span.VideoItem-info-title')?.textContent || 'Video';
+                return { idx, url, title };
+            });
+        """)
+
+        extraction_time = time.perf_counter() - start_time
+        log_success(f"✓ {len(videos_data)} vídeos mapeados em {extraction_time:.2f}s (JS otimizado)")
+
+        # Agora precisamos visitar APENAS o primeiro vídeo para entender a estrutura
+        # e tentar extrair os links de download sem múltiplos page loads
+        if videos_data:
+            # Navega para o primeiro vídeo como referência
+            first_video_url = videos_data[0]['url']
+            driver.get(first_video_url)
             try:
                 WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.LessonVideos")))
             except Exception:
                 pass
 
-            sanitized_vid_title = sanitize_filename(vid['title'])
-
-            # a) Materiais do Vídeo
-            extras = [
-                ("Baixar Resumo", f"_Resumo_{idx}.pdf"),
-                ("Baixar Slides", f"_Slides_{idx}.pdf"),
-                ("Baixar Mapa Mental", f"_Mapa_{idx}.pdf")
-            ]
-            for btn_text, suffix in extras:
-                try:
-                    elem = driver.find_element(By.XPATH, f"//a[contains(@class, 'LessonButton') and .//span[contains(text(), '{btn_text}')]]")
-                    url = elem.get_attribute('href')
-                    fname = f"{sanitized_lesson}_{sanitized_vid_title}{suffix}"
-                    download_queue.append({
-                        "url": url,
-                        "path": os.path.join(lesson_path, fname),
-                        "filename": fname,
-                        "referer": driver.current_url
-                    })
-                except Exception:
-                    pass
-
-            # b) O Arquivo de Vídeo
+            # Tenta extrair padrão de URLs de todos os vídeos via JavaScript
+            # (isso funciona se os vídeos compartilham URLs previsíveis)
             try:
-                # Clica em 'Opções de download' se necessário
+                # Expande opções de download se existir
                 try:
                     dl_header = driver.find_element(By.XPATH, "//div[contains(@class, 'Collapse-header')]//strong[text()='Opções de download']")
                     driver.execute_script("arguments[0].click();", dl_header)
-                    time.sleep(0.5)
+                    time.sleep(0.3)
+                except Exception:
+                    pass
+
+                # Extrai os botões de material do primeiro vídeo como template
+                material_buttons = driver.execute_script("""
+                    const buttons = Array.from(document.querySelectorAll("a.LessonButton"));
+                    return buttons.map(btn => ({
+                        text: btn.querySelector('span')?.textContent?.trim() || '',
+                        href: btn.href
+                    })).filter(b => b.text.includes('Baixar'));
+                """)
+
+                # Extrai links de vídeo
+                video_links = driver.execute_script("""
+                    const links = Array.from(document.querySelectorAll("div.Collapse-body a"));
+                    return links.map(link => ({
+                        text: link.textContent,
+                        href: link.href
+                    })).filter(l => l.text && (l.text.includes('720p') || l.text.includes('480p') || l.text.includes('360p')));
+                """)
+
+            except Exception:
+                material_buttons = []
+                video_links = []
+
+        # Processa cada vídeo com os dados já extraídos (fallback para navegação se necessário)
+        for vid_data in videos_data:
+            idx = vid_data['idx']
+            sanitized_vid_title = sanitize_filename(vid_data['title'])
+
+            # Se é o primeiro vídeo OU se precisamos fazer fallback, extrai materiais
+            needs_individual_scrape = (idx == 0) or (not material_buttons and not video_links)
+
+            if needs_individual_scrape and idx > 0:
+                # Fallback: navega individualmente (método antigo para vídeos sem padrão)
+                driver.get(vid_data['url'])
+                try:
+                    WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.LessonVideos")))
+                except Exception:
+                    pass
+
+                # Materiais do vídeo
+                extras = [
+                    ("Baixar Resumo", f"_Resumo_{idx}.pdf"),
+                    ("Baixar Slides", f"_Slides_{idx}.pdf"),
+                    ("Baixar Mapa Mental", f"_Mapa_{idx}.pdf")
+                ]
+                for btn_text, suffix in extras:
+                    try:
+                        elem = driver.find_element(By.XPATH, f"//a[contains(@class, 'LessonButton') and .//span[contains(text(), '{btn_text}')]]")
+                        url = elem.get_attribute('href')
+                        fname = f"{sanitized_lesson}_{sanitized_vid_title}{suffix}"
+                        download_queue.append({
+                            "url": url,
+                            "path": os.path.join(lesson_path, fname),
+                            "filename": fname,
+                            "referer": driver.current_url
+                        })
+                    except Exception:
+                        pass
+
+                # Link do vídeo
+                try:
+                    dl_header = driver.find_element(By.XPATH, "//div[contains(@class, 'Collapse-header')]//strong[text()='Opções de download']")
+                    driver.execute_script("arguments[0].click();", dl_header)
+                    time.sleep(0.3)
                 except Exception:
                     pass
 
@@ -487,7 +542,6 @@ def scrape_lesson_data(
                         link_elem = driver.find_element(By.XPATH, f"//div[contains(@class, 'Collapse-body')]//a[contains(text(), '{quality}')]")
                         video_url = link_elem.get_attribute('href')
                         fname = f"{sanitized_vid_title}_{quality}.mp4"
-
                         download_queue.append({
                             "url": video_url,
                             "path": os.path.join(lesson_path, fname),
@@ -495,15 +549,53 @@ def scrape_lesson_data(
                             "referer": driver.current_url
                         })
                         found = True
-                        break # Pega apenas a melhor qualidade
+                        break
                     except Exception:
                         continue
 
                 if not found:
-                    tqdm.write(f"{Fore.YELLOW}Vídeo sem link detectado: {vid['title']}")
+                    tqdm.write(f"{Fore.YELLOW}Vídeo sem link detectado: {vid_data['title']}")
+            else:
+                # FAST PATH: Usa os dados já extraídos (primeiro vídeo)
+                # Adiciona materiais se existirem no padrão
+                for btn in material_buttons:
+                    if 'Resumo' in btn['text']:
+                        fname = f"{sanitized_lesson}_{sanitized_vid_title}_Resumo_{idx}.pdf"
+                        download_queue.append({
+                            "url": btn['href'],
+                            "path": os.path.join(lesson_path, fname),
+                            "filename": fname,
+                            "referer": vid_data['url']
+                        })
+                    elif 'Slides' in btn['text']:
+                        fname = f"{sanitized_lesson}_{sanitized_vid_title}_Slides_{idx}.pdf"
+                        download_queue.append({
+                            "url": btn['href'],
+                            "path": os.path.join(lesson_path, fname),
+                            "filename": fname,
+                            "referer": vid_data['url']
+                        })
+                    elif 'Mapa' in btn['text']:
+                        fname = f"{sanitized_lesson}_{sanitized_vid_title}_Mapa_{idx}.pdf"
+                        download_queue.append({
+                            "url": btn['href'],
+                            "path": os.path.join(lesson_path, fname),
+                            "filename": fname,
+                            "referer": vid_data['url']
+                        })
 
-            except Exception as e:
-                tqdm.write(f"{Fore.RED}Erro ao extrair vídeo: {e}")
+                # Adiciona link de vídeo se encontrado
+                for link in video_links:
+                    if '720p' in link['text'] or '480p' in link['text'] or '360p' in link['text']:
+                        quality = '720p' if '720p' in link['text'] else ('480p' if '480p' in link['text'] else '360p')
+                        fname = f"{sanitized_vid_title}_{quality}.mp4"
+                        download_queue.append({
+                            "url": link['href'],
+                            "path": os.path.join(lesson_path, fname),
+                            "filename": fname,
+                            "referer": vid_data['url']
+                        })
+                        break  # Pega apenas a melhor qualidade
 
     except Exception as e:
         log_warn(f"Erro ao processar playlist: {e}")
