@@ -83,6 +83,10 @@ class DownloadIndex:
         with self._lock:
             return file_path in self.completed
 
+    def is_downloaded(self, file_path: str) -> bool:
+        """Alias for is_completed() for compatibility with DownloadDatabase API."""
+        return self.is_completed(file_path)
+
     def mark_completed(self, file_path: str) -> None:
         """Mark a file as completed and save index (thread-safe)."""
         with self._lock:

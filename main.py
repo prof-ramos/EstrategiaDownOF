@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 
 # Use orjson for 10x faster JSON if available, fallback to stdlib
 try:

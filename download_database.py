@@ -451,6 +451,11 @@ class DownloadDatabase:
             if not stored_hash or recalculate:
                 actual_hash = self._calculate_sha256(file_path)
 
+                # Verifica se hash foi calculado com sucesso
+                if not actual_hash:
+                    conn.close()
+                    return (False, "Erro ao calcular hash do arquivo")
+
                 if not stored_hash:
                     # Primeira verificação, salva o hash
                     cursor.execute(
@@ -476,6 +481,12 @@ class DownloadDatabase:
             else:
                 # Já tem hash, verifica
                 actual_hash = self._calculate_sha256(file_path)
+
+                # Verifica se hash foi calculado com sucesso
+                if not actual_hash:
+                    conn.close()
+                    return (False, "Erro ao calcular hash do arquivo")
+
                 if actual_hash == stored_hash:
                     cursor.execute(
                         "UPDATE downloads SET verified = TRUE, last_verified_at = CURRENT_TIMESTAMP WHERE file_path = ?",
