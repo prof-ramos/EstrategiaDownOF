@@ -1,0 +1,384 @@
+# Configuração CodeRabbit - Projeto EstrategiaDownOF
+# Idioma e tom
+
+language: pt-BR
+tone_instructions: "Você deve falar como o Sr. T. Tenho pena do tolo que não fala assim!"
+early_access: true
+enable_free_tier: true
+
+# Configurações de Review
+reviews:
+  # Perfil assertivo para feedback mais detalhado
+  profile: assertive
+  
+  # Workflow de aprovação - bloqueia merge se houver issues não resolvidos
+  request_changes_workflow: true
+  
+  # Resumos e títulos automáticos
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  high_level_summary_instructions: "Crie notas de release concisas em formato de lista, seguidas de uma tabela mostrando linhas adicionadas e removidas por autor."
+  auto_title_placeholder: "@coderabbitai"
+  auto_title_instructions: "Nome irônico, humor extremamente pesado"
+  
+  # Status e commit checks
+  review_status: true
+  commit_status: true
+  fail_commit_status: true
+  
+  # Recursos de walkthrough
+  collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  
+  # Análise de issues e PRs relacionados
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  
+  # Labels e reviewers automáticos
+  suggested_labels: true
+  auto_apply_labels: true
+  suggested_reviewers: true
+  auto_assign_reviewers: true
+  
+  # Instruções para labels personalizados
+  labeling_instructions:
+    - label: "async"
+      instructions: "Aplicar quando o PR contém mudanças em código assíncrono (async/await, asyncio)"
+    - label: "ui"
+      instructions: "Aplicar quando o PR contém mudanças na interface do usuário (ui.py, formatação de saída)"
+    - label: "download"
+      instructions: "Aplicar quando o PR contém mudanças na lógica de download"
+    - label: "retry-logic"
+      instructions: "Aplicar quando o PR contém mudanças em lógica de retry ou tratamento de erros"
+    - label: "performance"
+      instructions: "Aplicar quando o PR melhora performance ou velocidade"
+    - label: "docs"
+      instructions: "Aplicar quando o PR atualiza documentação (README, CHANGELOG)"
+    - label: "tests"
+      instructions: "Aplicar quando o PR adiciona ou modifica testes"
+  
+  # Extras
+  in_progress_fortune: true
+  poem: true
+  enable_prompt_for_ai_agents: true
+  
+  # Não abortar review se PR for fechado
+  abort_on_close: false
+  disable_cache: false
+  
+  # Instruções específicas por path
+  path_instructions:
+    - path: "**/*.py"
+      instructions: |
+        - Verificar docstrings em português (pt-BR) para todas as funções e classes públicas
+        - Garantir type hints em todos os parâmetros e retornos
+        - Validar tratamento de exceções apropriado
+        - Verificar logging adequado para debug
+        - Assegurar que código assíncrono usa await corretamente
+        - Validar thread-safety em operações concorrentes
+    
+    - path: "async_downloader.py"
+      instructions: |
+        - Validar uso correto de asyncio e aiohttp
+        - Verificar gestão adequada de recursos (context managers)
+        - Assegurar tratamento de timeouts e cancelamentos
+        - Validar retry logic com backoff exponencial
+        - Verificar thread-safety do DownloadIndex
+    
+    - path: "main.py"
+      instructions: |
+        - Validar CLI arguments e validação de input
+        - Verificar gestão de exceções no fluxo principal
+        - Assegurar logging apropriado de progresso
+        - Validar integração entre modo síncrono e assíncrono
+    
+    - path: "ui.py"
+      instructions: |
+        - Verificar compatibilidade com diferentes tamanhos de terminal
+        - Validar uso correto de cores (colorama)
+        - Assegurar mensagens em português claro
+        - Verificar truncamento adequado de texto longo
+    
+    - path: "test_*.py"
+      instructions: |
+        - Validar cobertura de casos edge
+        - Verificar uso de fixtures e mocks apropriados
+        - Assegurar testes são isolados e determinísticos
+        - Validar docstrings explicando o que está sendo testado
+    
+    - path: "README.md"
+      instructions: |
+        - Manter documentação em português claro
+        - Assegurar exemplos de código funcionais
+        - Validar instruções de instalação completas
+        - Verificar links e referências válidas
+  
+  # Review automático
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    ignore_title_keywords: []
+    labels: []
+    drafts: true  # Revisar também drafts
+    base_branches: [".*"]  # Revisar todos os branches
+    ignore_usernames: []
+  
+  # Finishing Touches - geração automática
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+  
+  # Pre-merge Checks - validações antes do merge
+  pre_merge_checks:
+    docstrings:
+      mode: error  # Bloqueia se docstrings < threshold
+      threshold: 80
+    
+    title:
+      mode: warning
+      requirements: "Título deve ser descritivo e conciso, preferencialmente em português"
+    
+    description:
+      mode: warning
+    
+    issue_assessment:
+      mode: warning
+    
+    # Checks customizados específicos do projeto
+    custom_checks:
+      - name: "Async Best Practices"
+        mode: warning
+        instructions: |
+          Verificar se o código assíncrono segue best practices:
+          - Usar async/await consistentemente
+          - Evitar blocking calls em contexto async
+          - Usar asyncio.create_task() para tarefas concorrentes
+          - Garantir cleanup adequado (try/finally ou context managers)
+      
+      - name: "Error Handling"
+        mode: warning
+        instructions: |
+          Validar tratamento de erros:
+          - Exceções específicas são capturadas (não usar bare except)
+          - Mensagens de erro são claras e em português
+          - Logging adequado de erros com contexto
+          - Cleanup de recursos em caso de erro
+      
+      - name: "Portuguese Documentation"
+        mode: warning
+        instructions: |
+          Verificar que documentação está em português brasileiro:
+          - Docstrings em pt-BR
+          - Mensagens de usuário em pt-BR
+          - Comentários de código em pt-BR ou inglês técnico
+          - README e CHANGELOG em pt-BR
+      
+      - name: "Thread Safety"
+        mode: error
+        instructions: |
+          Validar thread-safety em código concorrente:
+          - Uso de locks para recursos compartilhados
+          - Evitar race conditions
+          - Usar thread-safe data structures
+          - Documentar requirements de thread-safety
+      
+      - name: "Performance Considerations"
+        mode: warning
+        instructions: |
+          Avaliar impacto de performance:
+          - Operações I/O devem ser assíncronas
+          - Evitar loops com blocking calls
+          - Usar batching quando apropriado
+          - Considerar memory usage em downloads grandes
+  
+  # Ferramentas de análise estática
+  tools:
+    # Python linters - TODOS HABILITADOS
+    ruff:
+      enabled: true
+    
+    pylint:
+      enabled: true
+    
+    flake8:
+      enabled: true
+    
+    # Outras ferramentas relevantes
+    shellcheck:
+      enabled: true
+    
+    markdownlint:
+      enabled: true
+    
+    yamllint:
+      enabled: true
+    
+    # Segurança
+    gitleaks:
+      enabled: true
+    
+    checkov:
+      enabled: true
+    
+    semgrep:
+      enabled: true
+    
+    osvScanner:
+      enabled: true
+    
+    # GitHub checks
+    github-checks:
+      enabled: true
+      timeout_ms: 90000
+    
+    # Verificação de linguagem
+    languagetool:
+      enabled: true
+      level: picky
+      enabled_rules: []
+      disabled_rules:
+        - EN_UNPAIRED_BRACKETS
+        - EN_UNPAIRED_QUOTES
+      disabled_categories:
+        - TYPOS
+        - TYPOGRAPHY
+        - CASING
+    
+    # AST patterns
+    ast-grep:
+      essential_rules: true
+      packages: []
+      rule_dirs: []
+      util_dirs: []
+    
+    # Outras ferramentas habilitadas
+    biome:
+      enabled: true
+    
+    hadolint:
+      enabled: true
+    
+    dotenvLint:
+      enabled: true
+    
+    actionlint:
+      enabled: true
+
+# Configurações de Chat
+chat:
+  art: true
+  auto_reply: true
+  integrations:
+    jira:
+      usage: disabled
+    linear:
+      usage: disabled
+
+# Base de Conhecimento - TUDO HABILITADO
+knowledge_base:
+  opt_out: false
+  
+  web_search:
+    enabled: true
+  
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "**/.cursorrules"
+      - ".github/copilot-instructions.md"
+      - "**/CODING_STANDARDS.md"
+      - "**/STYLE_GUIDE.md"
+  
+  learnings:
+    scope: auto
+  
+  issues:
+    scope: auto
+  
+  jira:
+    usage: disabled
+    project_keys: []
+  
+  linear:
+    usage: disabled
+    team_keys: []
+  
+  pull_requests:
+    scope: auto
+  
+  mcp:
+    usage: auto
+    disabled_servers: []
+
+# Geração de Código
+code_generation:
+  docstrings:
+    language: pt-BR
+    path_instructions:
+      - path: "**/*.py"
+        instructions: |
+          Gerar docstrings em português brasileiro seguindo o formato:
+          """
+          Breve descrição da função/classe.
+          
+          Args:
+              param1: Descrição do parâmetro 1
+              param2: Descrição do parâmetro 2
+          
+          Returns:
+              Descrição do retorno
+          
+          Raises:
+              ExceptionType: Quando ocorre X
+          
+          Example:
+              >>> exemplo_de_uso()
+              resultado
+          """
+  
+  unit_tests:
+    path_instructions:
+      - path: "**/*.py"
+        instructions: |
+          Gerar testes usando pytest com:
+          - Nome de teste descritivo em inglês (test_*)
+          - Docstring em português explicando o teste
+          - Arrange-Act-Assert pattern
+          - Mocks apropriados para dependências externas
+          - Assertions claras e específicas
+          - Cobertura de casos edge e error paths
+
+# Enriquecimento de Issues
+issue_enrichment:
+  auto_enrich:
+    enabled: true
+  
+  planning:
+    enabled: true
+    auto_planning:
+      enabled: true
+      labels:
+        - "feature"
+        - "enhancement"
+        - "bug"
+  
+  labeling:
+    auto_apply_labels: true
+    labeling_instructions:
+      - label: "bug"
+        instructions: "Problema ou erro no código existente"
+      - label: "feature"
+        instructions: "Nova funcionalidade ou capacidade"
+      - label: "enhancement"
+        instructions: "Melhoria de funcionalidade existente"
+      - label: "documentation"
+        instructions: "Melhorias ou adições à documentação"
+      - label: "performance"
+        instructions: "Melhorias de performance"
+      - label: "security"
+        instructions: "Questões relacionadas a segurança"

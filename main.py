@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 
 # Use orjson for 10x faster JSON if available, fallback to stdlib
 try:
@@ -38,7 +37,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from tqdm import tqdm
 
-from async_downloader import run_async_downloads
+from async_downloader import run_async_downloads, DownloadIndex
+import ui
 
 if TYPE_CHECKING:
     from selenium.webdriver.remote.webdriver import WebDriver
@@ -68,22 +68,22 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # --- Funções de Log Coloridas ---
 def log_info(msg: str) -> None:
     """Log informational message."""
-    tqdm.write(f"{Fore.CYAN}[INFO]{Style.RESET_ALL} {msg}")
+    tqdm.write(f"{Fore.CYAN}● INFO:{Style.RESET_ALL} {msg}")
 
 
 def log_success(msg: str) -> None:
     """Log success message."""
-    tqdm.write(f"{Fore.GREEN}[OK]{Style.RESET_ALL} {msg}")
+    tqdm.write(f"{Fore.GREEN}✓ OK:{Style.RESET_ALL} {msg}")
 
 
 def log_warn(msg: str) -> None:
     """Log warning message."""
-    tqdm.write(f"{Fore.YELLOW}[AVISO]{Style.RESET_ALL} {msg}")
+    tqdm.write(f"{Fore.YELLOW}⚠ AVISO:{Style.RESET_ALL} {msg}")
 
 
 def log_error(msg: str) -> None:
     """Log error message."""
-    tqdm.write(f"{Fore.RED}[ERRO]{Style.RESET_ALL} {msg}")
+    tqdm.write(f"{Fore.RED}✗ ERRO:{Style.RESET_ALL} {msg}")
 
 # --- Funções Auxiliares ---
 
@@ -101,6 +101,35 @@ def sanitize_filename(original_filename: str) -> str:
     while '__' in sanitized:
         sanitized = sanitized.replace('__', '_')
     return sanitized.strip('_')
+
+def retry_with_backoff(func, max_retries: int = 3, initial_delay: float = 2.0):
+    """Executa função com retry e backoff exponencial.
+
+    Args:
+        func: Função a executar (deve retornar tuple (success: bool, result))
+        max_retries: Número máximo de tentativas
+        initial_delay: Delay inicial em segundos
+
+    Returns:
+        Resultado da função ou None se todas tentativas falharem
+    """
+    delay = initial_delay
+    for attempt in range(max_retries):
+        try:
+            success, result = func()
+            if success:
+                return result
+            # Se não teve sucesso mas não lançou exceção, tenta novamente
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+                delay *= 2  # Backoff exponencial
+        except Exception:
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise  # Re-lança exceção na última tentativa
+    return None
 
 def save_cookies(driver: WebDriver, path: str) -> bool:
     """Salva cookies do navegador em arquivo JSON (orjson optimized)."""
@@ -134,11 +163,12 @@ def load_cookies(driver: WebDriver, path: str) -> bool:
         log_warn(f"Erro ao carregar cookies: {e}")
         return False
 
-def download_file_task(task: dict[str, str]) -> str:
-    """Função individual de download executada em thread.
+def download_file_task(task: dict[str, str], index: DownloadIndex = None) -> str:
+    """Função individual de download executada em thread com retry e resume.
 
     Args:
         task: Dicionário com url, path, filename, referer.
+        index: DownloadIndex para checkpoint (opcional).
 
     Returns:
         Mensagem de status do download.
@@ -148,60 +178,135 @@ def download_file_task(task: dict[str, str]) -> str:
     filename = task['filename']
     referer = task.get('referer')
 
+    # Verifica checkpoint primeiro
+    if index and index.is_completed(path):
+        return f"{Fore.YELLOW}Já indexado (pulado): {filename}"
+
+    # Verifica se arquivo final já existe
     if os.path.exists(path):
+        if index:
+            index.mark_completed(path)
         return f"{Fore.YELLOW}Já existe (pulado): {filename}"
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Encoding': 'gzip, deflate, br',  # Compression for 60-80% bandwidth savings
-        'Connection': 'keep-alive'  # Reuse connections
-    }
-    if referer:
-        headers['Referer'] = referer
+    temp_path = path + ".part"
 
+    def attempt_download():
+        """Tenta fazer o download uma vez. Retorna (success, message)."""
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*'
+        }
+        if referer:
+            headers['Referer'] = referer
+
+        # Verifica se há download parcial para retomar
+        existing_size = 0
+        if os.path.exists(temp_path):
+            existing_size = os.path.getsize(temp_path)
+            headers['Range'] = f'bytes={existing_size}-'
+
+        try:
+            response = SESSION.get(url, stream=True, timeout=120, headers=headers)
+
+            # Status 416 = Range not satisfiable (arquivo já completo)
+            if response.status_code == 416:
+                if os.path.exists(temp_path):
+                    os.rename(temp_path, path)
+                if index:
+                    index.mark_completed(path)
+                return (True, f"{Fore.GREEN}Resumido (completo): {filename}")
+
+            response.raise_for_status()
+
+            total_size = int(response.headers.get('content-length', 0))
+
+            # Se server retornou 206 Partial Content, abre em modo append
+            mode = 'ab' if response.status_code == 206 else 'wb'
+            if mode == 'wb' and os.path.exists(temp_path):
+                os.remove(temp_path)  # Remove parcial anterior se não for continuar
+
+            # Cria o diretório pai se não existir
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+
+            with open(temp_path, mode) as f:
+                # Barra de progresso individual
+                initial = existing_size if mode == 'ab' else 0
+                with tqdm(total=total_size + initial, initial=initial, unit='B', unit_scale=True,
+                         desc=filename[:20], leave=False, colour='green') as pbar:
+                    for chunk in response.iter_content(chunk_size=131072):
+                        if chunk:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+
+            # Download completo, renomeia .part para nome final
+            os.rename(temp_path, path)
+            if index:
+                index.mark_completed(path)
+            return (True, f"{Fore.GREEN}Baixado: {filename}")
+
+        except requests.exceptions.RequestException as e:
+            # Erros de rede são recuperáveis, mantém .part para retry
+            return (False, f"Erro de rede: {e}")
+        except Exception:
+            # Outros erros, remove arquivo parcial
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise
+
+    # Executa com retry
     try:
-        response = SESSION.get(url, stream=True, timeout=120, headers=headers)
-        response.raise_for_status()
-
-        total_size = int(response.headers.get('content-length', 0))
-
-        # Cria o diretório pai se não existir (segurança extra para threads)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-
-        with open(path, 'wb') as f:
-            # Barra de progresso individual para arquivos grandes
-            # leave=False faz a barra sumir ao terminar para não poluir o terminal
-            with tqdm(total=total_size, unit='B', unit_scale=True, desc=filename[:20], leave=False, colour='green') as pbar:
-                for chunk in response.iter_content(chunk_size=131072): # Aumentado para 128KB
-                    if chunk:
-                        f.write(chunk)
-                        pbar.update(len(chunk))
-
-        return f"{Fore.GREEN}Baixado: {filename}"
-
+        result = retry_with_backoff(attempt_download, max_retries=4, initial_delay=2.0)
+        if result:
+            return result
+        else:
+            return f"{Fore.RED}Falha após 4 tentativas: {filename}"
     except Exception as e:
-        if os.path.exists(path):
+        # Limpa arquivo parcial em caso de erro fatal
+        if os.path.exists(temp_path):
             try:
-                os.remove(path)
+                os.remove(temp_path)
             except Exception:
                 pass
         return f"{Fore.RED}Falha ao baixar {filename}: {e}"
 
-def process_download_queue(queue: list[dict[str, str]]) -> None:
-    """Gerencia a fila de downloads usando ThreadPoolExecutor."""
+def process_download_queue(queue: list[dict[str, str]], base_dir: str) -> None:
+    """Gerencia a fila de downloads usando ThreadPoolExecutor com checkpoint.
+
+    Args:
+        queue: Lista de tarefas de download.
+        base_dir: Diretório base para salvar o index.
+    """
     if not queue:
         return
 
-    log_info(f"Iniciando download de {len(queue)} arquivos em paralelo...")
+    # Inicializa o sistema de checkpoint
+    index = DownloadIndex(base_dir)
+
+    # Filtra arquivos já completos
+    pending = [t for t in queue if not index.is_completed(t['path']) and not os.path.exists(t['path'])]
+
+    if not pending:
+        log_info("Todos os arquivos já foram baixados.")
+        return
+
+    log_info(f"Iniciando download de {len(pending)} arquivos em paralelo (com retry e resume)...")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_task = {executor.submit(download_file_task, task): task for task in queue}
+        future_to_task = {executor.submit(download_file_task, task, index): task for task in pending}
 
         # Barra de progresso geral (quantidade de arquivos)
-        for future in tqdm(as_completed(future_to_task), total=len(queue), desc="Progresso da Aula", unit="arq", colour='cyan'):
+        pbar_config = {
+            "desc": "  📦 Baixando",
+            "unit": " arq",
+            "colour": "cyan",
+            "bar_format": "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+        }
+        for future in tqdm(as_completed(future_to_task), total=len(pending), **pbar_config):
             future.result()
-            # Opcional: imprimir resultado de cada arquivo (pode poluir se forem muitos)
+            # Opcional: descomentar para ver resultado de cada arquivo
             # tqdm.write(result_msg)
 
 # --- Selenium e Scraping ---
@@ -457,21 +562,43 @@ def main() -> None:
     # Caminho específico solicitado
     default_path = "/Users/gabrielramos/Library/Mobile Documents/com~apple~CloudDocs/Estudo/Estrategia/Meus Cursos - Estratégia Concursos"
 
-    parser = argparse.ArgumentParser(description="Downloader Estratégia Concursos (Mac/Optimized)")
+    parser = argparse.ArgumentParser(
+        description="Downloader Estratégia Concursos (Otimizado com retry e checkpoint)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Recursos:
+  • Retry automático com backoff exponencial (4 tentativas)
+  • Resume de downloads interrompidos (.part files)
+  • Checkpoint/index para não re-baixar arquivos completos
+  • Modo async (padrão) com melhor performance
+  • Login persistente via cookies
+        """
+    )
     parser.add_argument('-d', '--dir', type=str, default=default_path, help="Diretório de download")
-    parser.add_argument('-w', '--wait-time', type=int, default=60, help="Tempo para login (s)")
+    parser.add_argument('-w', '--wait-time', type=int, default=60, help="Tempo para login manual (segundos)")
     parser.add_argument('--headless', action='store_true', help="Executa o navegador em modo oculto")
-    parser.add_argument('--workers', type=int, default=MAX_WORKERS, help="Número de downloads paralelos")
-    parser.add_argument('--async', dest='use_async', action='store_true', help="Usa downloads assíncronos (mais rápido)")
+    parser.add_argument('--workers', type=int, default=MAX_WORKERS, help="Número de downloads paralelos (padrão: 4)")
+    parser.add_argument('--sync', action='store_true', help="Usa modo síncrono em vez de async (mais lento)")
     args = parser.parse_args()
+
+    # Async é o padrão agora
+    args.use_async = not args.sync
 
     MAX_WORKERS = args.workers
 
     # Expande o '~' se o usuário passar um caminho relativo, mas usa o absoluto se for o default
     save_dir = os.path.expanduser(args.dir)
 
-    print(f"{Fore.BLUE}{Style.BRIGHT}=== AutoDownload Estratégia (Modo macOS/Paralelo) ==={Style.RESET_ALL}")
-    print(f"Salvando em: {save_dir}")
+    # Banner e configurações
+    mode_label = "Async" if args.use_async else "Síncrono"
+
+    if args.headless:
+        print(ui.simple_banner())
+    else:
+        print(ui.banner())
+
+    print("\n" + ui.config_panel(mode_label, MAX_WORKERS, save_dir))
+    print()
 
     driver = get_driver(headless=args.headless)
 
@@ -485,30 +612,31 @@ def main() -> None:
             # Verifica se realmente está logado
             try:
                 WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "section[id^='card']")))
-                log_success("Sessão restaurada com sucesso.")
+                print(ui.session_restored())
             except Exception:
                 log_warn("Sessão expirada. Necessário login manual.")
                 session_loaded = False
 
         if not session_loaded:
-            log_info("Abra o navegador e faça LOGIN.")
+            print(ui.login_prompt(args.wait_time))
             driver.get("https://perfil.estrategia.com/login")
-            for _ in tqdm(range(args.wait_time), desc="Aguardando Login", bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}s", colour='yellow'):
+            for _ in tqdm(range(args.wait_time), desc="⏳ Aguardando Login", bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}s", colour='yellow'):
                 time.sleep(1)
             # Salva cookies após login
             save_cookies(driver, COOKIES_FILE)
+            print(f"\n{Fore.GREEN}✓ Cookies salvos com sucesso!{Style.RESET_ALL}\n")
 
         courses = get_courses_list(driver)
         if not courses:
             log_error("Nenhum curso encontrado. Verifique se logou corretamente.")
             return
 
-        for i, course in enumerate(courses):
-            print(f"\n{Fore.MAGENTA}{Style.BRIGHT}CURSO [{i+1}/{len(courses)}]: {course['title']}{Style.RESET_ALL}")
+        for i, course in enumerate(courses, 1):
+            print(ui.course_header(i, len(courses), course['title']))
 
             lessons = get_lessons_list(driver, course['url'])
-            for j, lesson in enumerate(lessons):
-                print(f"\n{Fore.BLUE}  Aula [{j+1}/{len(lessons)}]: {lesson['title']}{Style.RESET_ALL}")
+            for j, lesson in enumerate(lessons, 1):
+                print(ui.lesson_header(j, len(lessons), lesson['title']))
 
                 # 1. Coleta Links (Serial)
                 queue = scrape_lesson_data(driver, lesson, course['title'], save_dir)
@@ -518,17 +646,19 @@ def main() -> None:
                     if args.use_async:
                         run_async_downloads(queue, save_dir, MAX_WORKERS)
                     else:
-                        process_download_queue(queue)
+                        process_download_queue(queue, save_dir)
                 else:
                     log_warn("  Nenhum arquivo encontrado nesta aula.")
 
     except KeyboardInterrupt:
-        print("\nInterrompido pelo usuário.")
+        print(f"\n\n{Fore.YELLOW}⚠  Interrompido pelo usuário.{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}💾 Progresso salvo! Execute novamente para continuar.{Style.RESET_ALL}\n")
     except Exception as e:
         log_error(f"Erro fatal: {e}")
     finally:
         driver.quit()
-        log_info("Navegador fechado.")
+        print(f"\n{Fore.CYAN}🌐 Navegador fechado.{Style.RESET_ALL}")
+        print(ui.goodbye())
 
 if __name__ == "__main__":
     main()

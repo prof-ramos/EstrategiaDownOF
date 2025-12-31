@@ -1,8 +1,14 @@
 # Dependências do AutoDownload Estratégia Concursos
 # Instale com: pip install -r requirements.txt
 
-# Requisições HTTP com suporte a streaming
+# Requisições HTTP síncronas com suporte a streaming
 requests>=2.28.0
+
+# Requisições HTTP assíncronas (modo async - padrão)
+aiohttp>=3.9.0
+
+# I/O de arquivos assíncrono
+aiofiles>=23.2.0
 
 # Barras de progresso elegantes no terminal
 tqdm>=4.65.0
@@ -15,10 +21,6 @@ selenium>=4.15.0
 
 # Gerenciador automático de drivers do Selenium
 webdriver-manager>=4.0.0
-
-# Async downloads
-aiohttp>=3.8.0
-aiofiles>=23.0.0
 
 # Performance optimizations
 orjson>=3.9.0  # 10x faster JSON
