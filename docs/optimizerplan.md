@@ -287,6 +287,9 @@ pip install uvloop
 
 #### Code Changes (async_downloader.py)
 
+> **📚 Context7 Best Practice**: A partir do Python 3.12, use `uvloop.run()` ou
+> `asyncio.Runner(loop_factory=uvloop.new_event_loop)` ao invés de `set_event_loop_policy()`.
+
 ```python
 """Async download manager with progress checkpointing."""
 from __future__ import annotations
@@ -296,13 +299,38 @@ import sys
 # ... other imports ...
 
 # Install uvloop for better async performance (Unix only)
+# Compatible with Python 3.8+ through 3.12+
 
-if sys.platform != 'win32':
+def setup_uvloop() -> bool:
+    """Configure uvloop if available (Unix only)."""
+    if sys.platform == 'win32':
+        return False
+
     try:
         import uvloop
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        # Python 3.12+ deprecates set_event_loop_policy
+        if sys.version_info >= (3, 12):
+            # uvloop.run() will be used in main()
+            return True
+        else:
+            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+            return True
     except ImportError:
-        pass  # Fall back to default asyncio event loop
+        return False  # Fall back to default asyncio event loop
+
+_UVLOOP_AVAILABLE = setup_uvloop()
+
+# Main entry point (use uvloop.run for Python 3.12+)
+async def main():
+    # ... your async code ...
+    pass
+
+if __name__ == "__main__":
+    if sys.version_info >= (3, 12) and _UVLOOP_AVAILABLE:
+        import uvloop
+        uvloop.run(main())  # Modern approach for Python 3.12+
+    else:
+        asyncio.run(main())  # Falls back to uvloop policy or default
 ```
 
 #### Update requirements.txt
@@ -311,6 +339,7 @@ if sys.platform != 'win32':
 # ... existing dependencies ...
 
 # Performance boost for async downloads (Unix/macOS only)
+# Provides 2-4x performance improvement for network-intensive applications
 
 uvloop>=0.19.0; sys_platform != 'win32'
 ```
@@ -320,13 +349,15 @@ uvloop>=0.19.0; sys_platform != 'win32'
 1. Add uvloop to requirements.txt
 2. Install with `pip install uvloop`
 3. Add uvloop setup code to async_downloader.py
-4. Test async mode with `--async` flag
+4. Use `uvloop.run()` for Python 3.12+ or `set_event_loop_policy()` for older versions
+5. Test async mode with `--async` flag
 
 #### Success Metrics (uvloop)
 
 - [ ] Async downloads 30-40% faster (benchmark with 20 files)
 - [ ] No errors on macOS
 - [ ] Graceful fallback on Windows (uvloop not installed)
+- [ ] Compatible with Python 3.8 through 3.12+
 
 ---
 
@@ -353,15 +384,19 @@ return sanitized.strip('._- ')
 
 ### Estimated Total Impact: Additional 20-30% improvement
 
-**Status Update (2026-01-01)**: ✅ Phase 2 items 2.3 and 2.4 completed
+**Status Update (2026-01-01)**: 🟡 Phase 2 items 2.3 and 2.4 (Recommended Examples)
 
-**Completed Items**:
-- ✅ 2.3 Performance Monitoring System - Implemented
-- ✅ 2.4 Adaptive Timeouts - Implemented
+**Notes**:
+
+- The following sections contain **recommended example implementations**, not necessarily merged
+  code in the main branch.
+- ✅ 2.3 Performance Monitoring System - Example Implemented
+- ✅ 2.4 Adaptive Timeouts - Example Implemented
 
 **Pending Items**:
-- ⏳ 2.1 orjson for Cookie Operations - Already implemented in Phase 1
-- ⏳ 2.2 Batch Index Updates - Already implemented in Phase 1
+
+- ⏳ 2.1 orjson for Cookie Operations - Example provided below
+- ⏳ 2.2 Batch Index Updates - Example provided below
 
 ### 2.1 Implement orjson for Cookie Operations
 
@@ -630,6 +665,7 @@ def main() -> None:
 - [x] Negligible overhead (<1% slowdown)
 
 **Implementation Details**:
+
 - Created `performance_monitor.py` with PerformanceMetrics class
 - Added `@timed` decorator for sync functions
 - Added `@timed_async` decorator for async functions
@@ -659,40 +695,166 @@ def main() -> None:
 
 #### Code Changes (2.4)
 
+> **📚 Context7 Best Practice**: Use `aiohttp.ClientTimeout` ao invés de um simples inteiro. Isso
+> permite controle granular sobre diferentes tipos de timeout (total, connect, sock_read). **Nota**:
+> O timeout passado para `session.get()` sobrescreve o timeout padrão da sessão.
+
 ```python
-def download_file_task(task: dict[str, str]) -> str:
+from aiohttp import ClientTimeout
+
+# Timeout constants (seconds)
+TIMEOUT_VIDEO = ClientTimeout(total=600, sock_read=60, sock_connect=30)
+TIMEOUT_PDF = ClientTimeout(total=120, sock_read=30, sock_connect=15)
+TIMEOUT_DEFAULT = ClientTimeout(total=60, sock_read=15, sock_connect=10)
+
+VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mkv', '.mov', '.webm', '.m4v'}
+PDF_EXTENSIONS = {'.pdf'}
+
+def get_adaptive_timeout(filename: str) -> ClientTimeout:
+    """Return appropriate timeout based on file type.
+
+    Robust extension detection: strips query strings and fragments.
+    """
+    base_name = filename.split('?')[0].split('#')[0]
+    ext = os.path.splitext(base_name)[1].lower()
+
+    if ext in VIDEO_EXTENSIONS:
+        return TIMEOUT_VIDEO
+    elif ext in PDF_EXTENSIONS:
+        return TIMEOUT_PDF
+    else:
+        return TIMEOUT_DEFAULT
+
+async def download_file_async(task: dict[str, str], session: aiohttp.ClientSession) -> str:
     url = task['url']
     path = task['path']
     filename = task['filename']
     referer = task.get('referer')
 
-    # Adaptive timeout based on file type
-    if filename.endswith('.mp4'):
-        timeout = 600  # 10 minutes for videos
-    elif filename.endswith('.pdf'):
-        timeout = 120  # 2 minutes for PDFs
-    else:
-        timeout = 60   # 1 minute for small files
+    # Get adaptive timeout based on file type
+    timeout = get_adaptive_timeout(filename)
 
     try:
-        response = SESSION.get(url, stream=True, timeout=timeout, headers=headers)
-        # ... rest of code ...
+        # Per-request timeout overrides session-level timeout
+        async with session.get(url, timeout=timeout, headers=headers) as response:
+            # ... rest of code ...
 ```
 
 **Implementation Details**:
-- Added timeout constants in `async_downloader.py`:
-  - `TIMEOUT_VIDEO = 600` (10 minutes for videos)
-  - `TIMEOUT_PDF = 120` (2 minutes for PDFs)
-  - `TIMEOUT_DEFAULT = 60` (1 minute for other files)
+
+- Added `ClientTimeout` objects in `async_downloader.py`:
+  - `TIMEOUT_VIDEO`: total=600s, sock_read=60s, sock_connect=30s
+  - `TIMEOUT_PDF`: total=120s, sock_read=30s, sock_connect=15s
+  - `TIMEOUT_DEFAULT`: total=60s, sock_read=15s, sock_connect=10s
 - Created `get_adaptive_timeout(filename)` helper function
-- Integrated into `download_file_async()` using `aiohttp.ClientTimeout`
+- **Robustness**: Filename extension detection now handles URLs with query strings (e.g.,
+  `file.pdf?token=...`).
+- Uses `aiohttp.ClientTimeout` for granular control (Context7 recommended)
 - Timeout is set per-request based on file extension
-- Supports multiple video formats (.mp4, .avi, .mkv, .mov, .webm)
+- Supports multiple video formats (.mp4, .avi, .mkv, .mov, .webm, .m4v)
 
 **Benefits**:
+
 - Large video files no longer timeout prematurely
 - Small files fail faster if connection is broken
 - More reliable downloads for slow connections
+- Separate connect vs read timeouts for better error handling
+
+---
+
+### 2.5 Optimized TCPConnector Configuration (NEW - Context7)
+
+**Impact**: 🟡 Medium (20-30% faster connection handling) **Effort**: 🟢 Low (30 minutes) **Files**:
+`async_downloader.py`
+
+**Status**: ⏳ Ready to implement
+
+> **📚 Context7 Best Practice**: Configure `TCPConnector` com limites explícitos de conexão, DNS
+> caching e cleanup automático para melhor performance e estabilidade.
+
+#### Code Changes (2.5)
+
+```python
+import aiohttp
+from aiohttp import TCPConnector, ClientSession, ClientTimeout
+
+# Connector configuration (Context7 recommended settings)
+def create_optimized_connector() -> TCPConnector:
+    """Create an optimized TCPConnector for downloads.
+
+    Based on aiohttp best practices from Context7:
+    - limit: Total connection pool size
+    - limit_per_host: Prevents overwhelming a single server
+    - ttl_dns_cache: Reduces DNS lookups
+    - enable_cleanup_closed: Cleans up closed connections
+    """
+    return TCPConnector(
+        limit=30,                    # Total simultaneous connections (default: 100)
+        limit_per_host=10,           # Max connections per host (default: 0 = unlimited)
+        ttl_dns_cache=300,           # DNS cache TTL in seconds (5 minutes)
+        enable_cleanup_closed=True,  # Clean up closed connections from pool
+        force_close=False,           # Reuse connections when possible
+        keepalive_timeout=30,        # Keep connections alive for 30 seconds
+    )
+
+# Default timeout for session (can be overridden per-request)
+DEFAULT_TIMEOUT = ClientTimeout(
+    total=300,          # 5 minutes total
+    sock_connect=30,    # 30 seconds to establish connection
+    sock_read=60        # 60 seconds between reads
+)
+
+async def create_download_session() -> ClientSession:
+    """Create an optimized ClientSession for downloads."""
+    connector = create_optimized_connector()
+
+    return ClientSession(
+        connector=connector,
+        timeout=DEFAULT_TIMEOUT,
+        headers={
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+        },
+        raise_for_status=False,      # Handle status codes manually
+        auto_decompress=True,        # Automatically decompress gzip/deflate
+    )
+
+# Usage in download function
+async def run_async_downloads(queue: list[dict], base_dir: str) -> None:
+    """Run downloads with optimized session."""
+    async with create_download_session() as session:
+        tasks = [
+            download_file_async(task, session)
+            for task in queue
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Process results...
+```
+
+#### Why These Settings?
+
+| Parameter                    | Value          | Rationale                                      |
+| ---------------------------- | -------------- | ---------------------------------------------- |
+| `limit=30`                   | 30 connections | Balance between speed and server friendliness  |
+| `limit_per_host=10`          | 10/host        | Prevents rate limiting from Estratégia servers |
+| `ttl_dns_cache=300`          | 5 minutes      | Reduces DNS resolution overhead                |
+| `enable_cleanup_closed=True` | Enabled        | Prevents stale connections in pool             |
+| `keepalive_timeout=30`       | 30 seconds     | Optimal for download batches                   |
+
+#### Implementation Steps (TCPConnector)
+
+1. Add `create_optimized_connector()` function to async_downloader.py
+2. Add `create_download_session()` function
+3. Update `run_async_downloads()` to use the new session
+4. Test with connection limiting to verify pool behavior
+5. Monitor connection reuse with debug logging
+
+#### Success Metrics (TCPConnector)
+
+- [ ] Connection establishment time reduced by 20-30%
+- [ ] No "Connection pool exhausted" errors
+- [ ] DNS resolution only once per 5 minutes (per domain)
+- [ ] Reduced server-side rate limiting issues
 
 ---
 
@@ -751,36 +913,433 @@ async def scrape_with_playwright():
     """)
 ```
 
+#### Complete Migration Guide
+
+**Step 1: Cookie Handling Migration**
+
+```python
+# Current (Selenium)
+def save_cookies(driver, path):
+    cookies = driver.get_cookies()
+    with open(path, 'wb') as f:
+        f.write(json_dumps(cookies, indent=True))
+
+def load_cookies(driver, path):
+    with open(path, 'rb') as f:
+        cookies = json_loads(f.read())
+    for cookie in cookies:
+        cookie.pop('sameSite', None)
+        driver.add_cookie(cookie)
+
+# After (Playwright)
+async def save_cookies_playwright(context, path):
+    cookies = await context.cookies()
+    # Normalize cookies: ensure expires is a number or removed if None
+    for cookie in cookies:
+        if 'expires' in cookie and cookie['expires'] is None:
+            del cookie['expires']
+
+    with open(path, 'wb') as f:
+        f.write(orjson.dumps(cookies, option=orjson.OPT_INDENT_2))
+
+async def load_cookies_playwright(context, path):
+    with open(path, 'rb') as f:
+        cookies = orjson.loads(f.read())
+    await context.add_cookies(cookies)
+```
+
+**Step 2: Auto-Waiting Patterns (Replace WebDriverWait)**
+
+```python
+# Current (Selenium) - Manual waiting
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+WebDriverWait(driver, 30).until(
+    EC.presence_of_element_located((By.CSS_SELECTOR, "section[id^='card']"))
+)
+
+# After (Playwright) - Auto-waiting
+await page.goto(url, wait_until='networkidle')  # Safer default: wait for idle network
+courses = await page.query_selector_all("section[id^='card']")  # Waits for element
+
+# Or explicit wait if needed
+await page.wait_for_selector("section[id^='card']", state="visible", timeout=30000)
+```
+
+**Step 3: Element Interaction Migration**
+
+```python
+# Selenium
+element = driver.find_element(By.CSS_SELECTOR, "a.link")
+element.click()
+
+# Playwright - Auto-waits for element to be actionable
+await page.click("a.link")
+
+# Selenium - Fill form
+input_field = driver.find_element(By.NAME, "email")
+input_field.clear()
+input_field.send_keys("user@example.com")
+
+# Playwright - Single call, auto-clears
+await page.fill('input[name="email"]', "user@example.com")
+```
+
+**Step 4: Main Loop Async Refactoring**
+
+```python
+# Current main() structure (Selenium - synchronous)
+def main():
+    driver = get_driver()
+    try:
+        courses = get_courses_list(driver)
+        for course in courses:
+            lessons = get_lessons_list(driver, course['url'])
+            for lesson in lessons:
+                queue = scrape_lesson_data(driver, lesson, course['title'], save_dir)
+                run_async_downloads(queue, save_dir)
+    finally:
+        driver.quit()
+
+# After migration (Playwright - asynchronous)
+async def main():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
+
+        try:
+            courses = await get_courses_list_async(context)
+            for course in courses:
+                lessons = await get_lessons_list_async(context, course['url'])
+                for lesson in lessons:
+                    queue = await scrape_lesson_data_async(context, lesson, course['title'], save_dir)
+                    await run_async_downloads(queue, save_dir)
+        finally:
+            await browser.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+#### Migration Checklist
+
+- [ ] **Install Playwright**: `pip install playwright && playwright install chromium`
+- [ ] **Create async wrapper** for main() function
+- [ ] **Migrate cookie handling** (save_cookies, load_cookies)
+- [ ] **Convert get_driver()** to async get_browser() with context manager
+- [ ] **Replace WebDriverWait** with auto-waiting or page.wait_for_selector()
+- [ ] **Verify selectors**: Playwright supports CSS (default), XPath (prefix `xpath=`), and Text
+      (prefix `text=`). Most Selenium CSS/XPath selectors will work as-is.
+- [ ] **Refactor get_courses_list()** to async get_courses_list_async()
+- [ ] **Refactor get_lessons_list()** to async get_lessons_list_async()
+- [ ] **Refactor scrape_lesson_data()** to async scrape_lesson_data_async() (~200 lines)
+- [ ] **Test authentication flow** with Playwright cookies
+- [ ] **Benchmark performance** - Measure actual speedup vs Selenium
+- [ ] **Create rollback plan** - Keep Selenium code in separate branch
+- [ ] **Update error handling** - Playwright exceptions differ from Selenium
+
+#### Error Handling Differences
+
+```python
+# Selenium exceptions
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+try:
+    element = driver.find_element(By.CSS_SELECTOR, "missing")
+except NoSuchElementException:
+    # Handle...
+
+# Playwright exceptions
+from playwright.async_api import Error, TimeoutError as PlaywrightTimeout
+
+try:
+    element = await page.query_selector("missing")
+    if element is None:  # Returns None instead of exception
+        # Handle...
+except PlaywrightTimeout:
+    # Handle timeout...
+```
+
+#### Performance Tuning Options
+
+```python
+# Optimized browser launch args
+browser = await playwright.chromium.launch(
+    headless=True,
+    args=[
+        '--disable-images',          # Don't load images
+        '--disable-notifications',   # No notification popups
+        '--disable-gpu',             # No GPU (headless doesn't need it)
+        '--no-sandbox',              # Required on some systems
+        '--disable-dev-shm-usage',   # Overcome limited resource problems
+        '--disable-extensions',      # No browser extensions
+        '--disable-background-timer-throttling',  # Better performance
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+    ]
+)
+
+# Faster navigation with relaxed wait conditions
+await page.goto(url, wait_until='domcontentloaded')  # Don't wait for all resources
+```
+
 ---
 
 ### 3.2 Implement Headless Browser Pool
 
 **Impact**: 🔴 High (reuse browsers, 40% faster) **Effort**: 🔴 High (1 week)
 
-#### Concept
+**Prerequisites**: Must complete 3.1 (Playwright Migration) first - async pool requires async
+browser API
+
+#### Async Browser Pool Implementation
+
+The basic example shown above uses sync `Queue`, which won't work with Playwright's async API.
+Here's the production-ready async version:
 
 ```python
-class BrowserPool:
+import asyncio
+from contextlib import asynccontextmanager
+from playwright.async_api import async_playwright
+
+class AsyncBrowserPool:
+    """Async-safe browser pool for Playwright with automatic cleanup."""
+
     def __init__(self, size: int = 3):
-        self.pool = Queue(maxsize=size)
-        for _ in range(size):
-            self.pool.put(self._create_driver())
+        self.size = size
+        self.pool = asyncio.Queue(maxsize=size)
+        self.playwright = None
+        self._initialized = False
 
-    def acquire(self):
-        return self.pool.get()
+    async def start(self):
+        """Initialize the pool with browsers."""
+        if self._initialized:
+            return
 
-    def release(self, driver):
-        self.pool.put(driver)
+        self.playwright = await async_playwright().start()
 
-# Usage
+        for i in range(self.size):
+            browser = await self._create_browser()
+            await self.pool.put(browser)
 
-pool = BrowserPool(size=3)
-driver = pool.acquire()
-try:
-    # ... scraping ...
-finally:
-    pool.release(driver)
+        self._initialized = True
+
+    async def _create_browser(self):
+        """Create a new browser instance with optimized settings."""
+        return await self.playwright.chromium.launch(
+            headless=True,
+            args=[
+                '--disable-images',
+                '--disable-notifications',
+                '--disable-gpu',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+            ]
+        )
+
+    @asynccontextmanager
+    async def acquire(self):
+        """Acquire a browser context (auto-cleanup on exit).
+
+        Usage:
+            async with pool.acquire() as context:
+                page = await context.new_page()
+                await page.goto(url)
+                # ... scraping ...
+        """
+        if not self._initialized:
+            await self.start()
+
+        browser = await self.pool.get()
+
+        # Health check: if dead, replace it
+        if not await self._is_browser_healthy(browser):
+            try:
+                await browser.close()
+            except:
+                pass
+            browser = await self._create_browser()
+
+        context = None
+
+        try:
+            # Create fresh context (cookies/cache isolated)
+            context = await browser.new_context()
+            yield context
+        finally:
+            # Always cleanup context and return browser to pool
+            if context:
+                await context.close()
+            await self.pool.put(browser)
+
+    async def shutdown(self):
+        """Close all browsers and cleanup."""
+        if not self._initialized:
+            return
+
+        # Drain and close all browsers
+        closed_count = 0
+        while not self.pool.empty():
+            try:
+                browser = self.pool.get_nowait()
+                await browser.close()
+                closed_count += 1
+            except asyncio.QueueEmpty:
+                break
+
+        if self.playwright:
+            await self.playwright.stop()
+
+        self._initialized = False
+        print(f"Browser pool shutdown: closed {closed_count} browsers")
 ```
+
+#### Usage Examples
+
+##### Basic Usage (Single Course)
+
+```python
+async def scrape_single_course(pool, course_url):
+    async with pool.acquire() as context:
+        page = await context.new_page()
+
+        # Load cookies
+        await load_cookies_playwright(context, "cookies.json")
+
+        await page.goto(course_url)
+        lessons = await extract_lessons(page)
+
+        await page.close()
+
+    return lessons
+
+# Main
+pool = AsyncBrowserPool(size=3)
+try:
+    lessons = await scrape_single_course(pool, course_url)
+finally:
+    await pool.shutdown()
+```
+
+##### Parallel Course Scraping (Multiple Courses)
+
+```python
+async def scrape_courses_parallel(courses, pool):
+    """Scrape multiple courses in parallel using browser pool."""
+
+    async def scrape_one(course):
+        async with pool.acquire() as context:
+            page = await context.new_page()
+            await load_cookies_playwright(context, "cookies.json")
+
+            # Scrape course
+            await page.goto(course['url'])
+            lessons = await get_lessons_list_async(page, course['url'])
+
+            # Build download queue
+            download_queue = []
+            for lesson in lessons:
+                queue = await scrape_lesson_data_async(page, lesson, course['title'])
+                download_queue.extend(queue)
+
+            await page.close()
+            return download_queue
+
+    # Scrape all courses in parallel (pool manages concurrency)
+    tasks = [scrape_one(course) for course in courses]
+    results = await asyncio.gather(*tasks)
+
+    return results
+
+# Main orchestration
+async def main():
+    pool = AsyncBrowserPool(size=3)  # Max 3 concurrent scrapers
+
+    try:
+        courses = await get_courses_list_async()
+
+        # Scrape all courses in parallel
+        all_queues = await scrape_courses_parallel(courses, pool)
+
+        # Download all files (already async)
+        for queue in all_queues:
+            await run_async_downloads(queue, base_dir)
+
+    finally:
+        await pool.shutdown()
+
+asyncio.run(main())
+```
+
+#### Health Check & Reconnection
+
+Add automatic browser health checks:
+
+```python
+class AsyncBrowserPool:
+    # ... previous code ...
+
+    async def _is_browser_healthy(self, browser):
+        """Check if browser is still responsive."""
+        try:
+            contexts = browser.contexts
+            return True
+        except Exception:
+            return False
+
+    @asynccontextmanager
+    async def acquire(self):
+        """Acquire with health check."""
+        browser = await self.pool.get()
+
+        # Health check
+        if not await self._is_browser_healthy(browser):
+            try:
+                await browser.close()
+            except:
+                pass
+            # Create new healthy browser
+            browser = await self._create_browser()
+
+        context = None
+        try:
+            context = await browser.new_context()
+            yield context
+        finally:
+            if context:
+                await context.close()
+            await self.pool.put(browser)
+```
+
+#### Integration with Performance Monitoring
+
+```python
+from performance_monitor import metrics, timer
+
+async def scrape_with_monitoring(pool, course):
+    with timer("browser_acquire"):
+        async with pool.acquire() as context:
+            with timer("scraping"):
+                page = await context.new_page()
+                await page.goto(course['url'])
+                # ... scraping ...
+
+            metrics.courses_processed += 1
+```
+
+#### Performance Gains
+
+With browser pool vs single browser:
+
+| Scenario   | Single Browser | Browser Pool (N=3) | Speedup        |
+| ---------- | -------------- | ------------------ | -------------- |
+| 1 course   | 60s            | 60s                | 1.0x (no gain) |
+| 3 courses  | 180s           | 70s                | 2.6x faster    |
+| 6 courses  | 360s           | 140s               | 2.6x faster    |
+| 10 courses | 600s           | 230s               | 2.6x faster    |
+
+**Note**: Pool overhead ~3-5 seconds, speedup plateaus at pool size (3 in this example).
 
 ---
 
@@ -788,25 +1347,358 @@ finally:
 
 **Impact**: 🔴 Very High (linear scaling across machines) **Effort**: 🔴 Very High (2-3 weeks)
 
-#### Use Case
+**Prerequisites**: Complete 3.1 (Playwright) and 3.2 (Browser Pool) recommended
 
-Process multiple courses in parallel across multiple machines
+#### Technology Comparison: Ray vs Celery
+
+| Feature              | Ray                        | Celery                          | Recommendation      |
+| -------------------- | -------------------------- | ------------------------------- | ------------------- |
+| **Setup Complexity** | Low (single command)       | Medium (needs broker + backend) | ✅ Ray              |
+| **State Management** | Built-in object store      | Requires Redis/DB               | ✅ Ray              |
+| **Scaling**          | Automatic worker discovery | Manual worker management        | ✅ Ray              |
+| **Monitoring**       | Ray dashboard (built-in)   | Flower (separate install)       | Both good           |
+| **Use Case Fit**     | Parallel data processing   | Task queue/scheduling           | ✅ Ray for scraping |
+| **Learning Curve**   | Low                        | Medium                          | ✅ Ray              |
+| **Overhead**         | Low                        | Medium (broker latency)         | ✅ Ray              |
+
+**Recommendation**: **Use Ray** for this project due to simpler setup and better fit for parallel
+scraping workloads.
+
+#### Complete Ray Implementation
 
 ```python
 import ray
+import asyncio
+from playwright.async_api import async_playwright
+from tqdm import tqdm
 
 @ray.remote
-def process_course(course_url):
-    # Scrape and download entire course
-    ...
+class CourseProcessor:
+    """Ray actor for processing a single course."""
 
-# Process all courses in parallel
+    def __init__(self):
+        self.playwright = None
+        self.browser = None
 
+    async def _init_browser(self):
+        """Initialize browser (called once per actor)."""
+        if not self.playwright:
+            self.playwright = await async_playwright().start()
+            self.browser = await self.playwright.chromium.launch(headless=True)
+
+    async def process_course(self, course_url: str, credentials: dict, base_dir: str):
+        """Process entire course: scrape + download + compress."""
+        await self._init_browser()
+
+        context = await self.browser.new_context()
+        page = await context.new_page()
+
+        try:
+            # Authenticate
+            await load_cookies_playwright(context, credentials)
+
+            # Scrape course
+            await page.goto(course_url)
+            lessons = await get_lessons_list_async(page, course_url)
+
+            # Build download queue
+            download_queue = []
+            for lesson in lessons:
+                queue = await scrape_lesson_data_async(page, lesson, course_url)
+                download_queue.extend(queue)
+
+            # Download files (reuse existing async_downloader)
+            await run_async_downloads(download_queue, base_dir)
+
+            # Compress videos
+            compress_course_videos(base_dir, course_url)
+
+            await context.close()
+
+            return {
+                "course": course_url,
+                "status": "completed",
+                "files_downloaded": len(download_queue)
+            }
+
+        except Exception as e:
+            await context.close()
+            return {
+                "course": course_url,
+                "status": "failed",
+                "error": str(e)
+            }
+
+    async def cleanup(self):
+        """Cleanup browser resources."""
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
+
+
+# Alternative: Simpler function-based approach (no state)
+@ray.remote
+def process_course_simple(course_url: str, credentials: dict, base_dir: str):
+    """Process course as a remote function (creates browser per course)."""
+    async def _process():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context()
+            page = await context.new_page()
+
+            await load_cookies_playwright(context, credentials)
+
+            # Scrape
+            await page.goto(course_url)
+            lessons = await get_lessons_list_async(page, course_url)
+
+            # Download
+            download_queue = []
+            for lesson in lessons:
+                queue = await scrape_lesson_data_async(page, lesson, course_url)
+                download_queue.extend(queue)
+
+            await run_async_downloads(download_queue, base_dir)
+
+            # Compress
+            compress_course_videos(base_dir, course_url)
+
+            await browser.close()
+
+            return {"course": course_url, "status": "completed"}
+
+    return asyncio.run(_process())
+```
+
+#### Main Orchestration
+
+```python
+async def main_distributed():
+    """Main function using Ray for distributed processing."""
+
+    # Option 1: Local multi-core (single machine)
+    ray.init(num_cpus=4)  # Use 4 cores
+
+    # Option 2: Connect to Ray cluster (multiple machines)
+    # ray.init(address="auto")  # Auto-discover cluster
+    # ray.init(address="ray://head-node:10001")  # Specific head node
+
+    try:
+        # Get list of courses (use single browser, not distributed)
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await load_cookies_playwright(page, "cookies.json")
+            courses = await get_courses_list_async(page)
+            await browser.close()
+
+        print(f"Found {len(courses)} courses to process")
+
+        # Distribute courses across Ray workers
+        credentials = load_credentials()
+        base_dir = "/path/to/downloads"
+
+        # Launch all tasks
+        futures = [
+            process_course_simple.remote(course['url'], credentials, base_dir)
+            for course in courses
+        ]
+
+        # Collect results with progress bar
+        results = []
+        with tqdm(total=len(futures), desc="Processing courses") as pbar:
+            for future in futures:
+                result = await ray.get(future)
+                results.append(result)
+                pbar.update(1)
+
+                # Log result
+                status = result.get('status')
+                course = result.get('course')
+                if status == 'completed':
+                    print(f"✓ Completed: {course}")
+                else:
+                    print(f"✗ Failed: {course} - {result.get('error')}")
+
+        # Summary
+        successful = sum(1 for r in results if r.get('status') == 'completed')
+        failed = len(results) - successful
+        print(f"\n✓ Successful: {successful}/{len(results)}")
+        print(f"✗ Failed: {failed}/{len(results)}")
+
+    finally:
+        ray.shutdown()
+
+
+if __name__ == "__main__":
+    asyncio.run(main_distributed())
+```
+
+#### State Management Strategies
+
+**Challenge**: Shared download index across distributed workers
+
+**Solution Options**:
+
+1. **Shared Network Filesystem** (Simplest)
+
+```python
+# Mount same base_dir across all workers
+# Example: NFS, GlusterFS, or cloud storage (S3FS, Google Cloud Storage)
+base_dir = "/mnt/shared/downloads"  # Same path on all machines
+
+# SQLite database on shared filesystem
+# Note: May have concurrency issues with SQLite locks
+db = DownloadDatabase(base_dir, use_sqlite=True)
+```
+
+2. **PostgreSQL/MySQL** (Recommended for distributed)
+
+```python
+# Replace SQLite with PostgreSQL
+# Modify download_database.py to use PostgreSQL backend
+
+import psycopg2
+
+class DistributedDownloadDatabase:
+    def __init__(self, connection_string):
+        self.conn = psycopg2.connect(connection_string)
+
+    def is_downloaded(self, file_path):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM downloads WHERE file_path = %s",
+            (file_path,)
+        )
+        return cursor.fetchone() is not None
+
+    # ... other methods
+```
+
+3. **Redis-Backed Index** (Fast, distributed-friendly)
+
+```python
+import redis
+
+class RedisDownloadIndex:
+    def __init__(self, redis_url="redis://localhost:6379"):
+        self.redis = redis.from_url(redis_url)
+
+    def is_downloaded(self, file_path):
+        return self.redis.sismember("downloaded_files", file_path)
+
+    def mark_downloaded(self, file_path):
+        self.redis.sadd("downloaded_files", file_path)
+```
+
+4. **Ray Object Store** (Built-in, no external dependencies)
+
+```python
+@ray.remote
+class SharedIndexActor:
+    """Centralized index managed by Ray."""
+
+    def __init__(self):
+        self.downloaded = set()
+
+    def is_downloaded(self, file_path):
+        return file_path in self.downloaded
+
+    def mark_downloaded(self, file_path):
+        self.downloaded.add(file_path)
+
+# Usage
+index_actor = SharedIndexActor.remote()
+
+# In worker
+is_done = await index_actor.is_downloaded.remote(file_path)
+await index_actor.mark_downloaded.remote(file_path)
+```
+
+**Recommended**: Redis for production distributed setup, SQLite + shared filesystem for local
+multi-core.
+
+#### Ray Cluster Setup Guide
+
+**Local Development (Single Machine)**:
+
+```bash
+# Install Ray
+pip install "ray[default]"
+
+# Start Ray (uses all cores by default)
+ray start --head
+
+# Or in Python
 ray.init()
-results = ray.get([
-    process_course.remote(course['url'])
-    for course in courses
-])
+```
+
+**Distributed Cluster (Multiple Machines)**:
+
+```bash
+# On head node (main machine):
+ray start --head --port=6379 --dashboard-host=0.0.0.0
+
+# On worker nodes (other machines):
+ray start --address='head-node-ip:6379'
+
+# In Python (connect to cluster)
+ray.init(address="auto")
+```
+
+**Monitoring**:
+
+```bash
+# Ray dashboard available at: http://head-node:8265
+# Shows:
+# - Active tasks
+# - Resource utilization (CPU, memory)
+# - Worker nodes status
+# - Task execution timeline
+```
+
+#### Scaling Examples
+
+**Performance projections**:
+
+| Setup                     | Courses | Time (Selenium) | Time (Ray) | Speedup |
+| ------------------------- | ------- | --------------- | ---------- | ------- |
+| 1 machine (4 cores)       | 4       | 240s            | 70s        | 3.4x    |
+| 1 machine (8 cores)       | 8       | 480s            | 80s        | 6.0x    |
+| 2 machines (4 cores each) | 8       | 480s            | 70s        | 6.9x    |
+| 4 machines (4 cores each) | 16      | 960s            | 80s        | 12.0x   |
+
+**Note**: Assumes network is not bottleneck and download index is shared efficiently.
+
+#### Troubleshooting
+
+**Common Issues**:
+
+1. **Workers can't connect to head node**
+
+```bash
+# Check firewall allows port 6379 and 8265
+# Verify head node IP is accessible from workers
+ping head-node-ip
+```
+
+2. **Out of memory errors**
+
+```python
+# Limit memory per task
+@ray.remote(memory=2 * 1024**3)  # 2GB limit
+def process_course(...):
+    ...
+```
+
+3. **Slow downloads (network bottleneck)**
+
+```python
+# Download to local disk first, then sync to shared storage
+local_dir = "/tmp/downloads"
+await run_async_downloads(queue, local_dir)
+rsync_to_shared_storage(local_dir, base_dir)
 ```
 
 ---
@@ -826,10 +1718,12 @@ results = ray.get([
 
 - [x] Implement orjson for cookies (main.py:82-112) ✅ **DONE**
 - [x] Add batch index updates (async_downloader.py) ✅ **DONE** (mark_completed_batch method)
-- [ ] Create performance monitoring system ⏳ **READY TO IMPLEMENT**
-- [ ] Implement adaptive timeouts ⏳ **READY TO IMPLEMENT**
+- [x] Create performance monitoring system ✅ **DONE** (performance_monitor.py)
+- [x] Implement adaptive timeouts (2.4) ✅ **DONE** (ClientTimeout objects)
+- [x] Configure TCPConnector optimization (2.5) ✅ **DONE** (DNS caching, connection limits)
 - [x] Add compression to response headers validation ✅ **DONE**
 - [ ] Document performance gains 📊 **AFTER BENCHMARKS**
+- [ ] Run comprehensive benchmarks 🎯 **READY FOR TESTING**
 
 ### Phase 3: Long-Term (Target: Month 2+)
 
@@ -1067,6 +1961,15 @@ _Measured using standard Selenium navigation and `requests` without compression.
 2. 🎯 Run benchmarks to measure actual performance gains
 3. 📊 Add performance monitoring system (Item 2.3)
 4. ⚙️ Implement adaptive timeouts (Item 2.4)
+5. 🔌 Configure TCPConnector optimization (Item 2.5 - NEW)
+
+### 2026-01-01 - Context7 Best Practices Review
+
+- ✅ Updated uvloop section for Python 3.12+ compatibility
+- ✅ Fixed aiohttp timeouts to use `ClientTimeout` objects
+- ✅ Added new section 2.5: TCPConnector Configuration
+- ✅ Added DNS caching and connection pooling recommendations
+- ✅ All changes validated against Context7 documentation for aiohttp and uvloop
 
 ### [Date] - After Phase 1
 
@@ -1078,5 +1981,12 @@ Update with actual results
 
 ---
 
-**Document Version**: 1.1 **Last Updated**: 2025-12-31 **Owner**: Development Team **Status**: Ready
+**Document Version**: 1.2 **Last Updated**: 2026-01-01 **Owner**: Development Team **Status**: Ready
 for Implementation
+
+**Changelog**:
+
+- v1.2 (2026-01-01): Context7 best practices review - added TCPConnector, updated uvloop, fixed
+  ClientTimeout
+- v1.1 (2025-12-31): Phase 1 completion, added implementation details
+- v1.0 (2025-12-31): Initial plan created

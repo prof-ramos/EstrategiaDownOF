@@ -6,7 +6,6 @@ import os
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Union
 
 import aiofiles
 import aiohttp
@@ -17,10 +16,17 @@ from tqdm import tqdm
 from .download_database import DownloadDatabase
 
 # Use uvloop on macOS/Linux for 30-40% faster async (fallback on Windows/if not installed)
+# Context7 Best Practice: Python 3.12+ deprecates set_event_loop_policy
+_UVLOOP_AVAILABLE = False
 if sys.platform != 'win32':
     try:
         import uvloop
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        # Python 3.12+ uses uvloop.run() instead of policy
+        if sys.version_info >= (3, 12):
+            _UVLOOP_AVAILABLE = True
+        else:
+            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+            _UVLOOP_AVAILABLE = True
     except ImportError:
         pass
 
@@ -45,28 +51,73 @@ INDEX_FILE = "download_index.json"
 MAX_RETRIES = 4
 INITIAL_RETRY_DELAY = 2.0  # segundos
 
-# Adaptive timeout settings (seconds)
-TIMEOUT_VIDEO = 600      # 10 minutes for videos (large files)
-TIMEOUT_PDF = 120        # 2 minutes for PDFs
-TIMEOUT_DEFAULT = 60     # 1 minute for other files
+# Video file extensions
+VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mkv', '.mov', '.webm', '.m4v'}
+PDF_EXTENSIONS = {'.pdf'}
+
+# Context7 Best Practice: Use aiohttp.ClientTimeout for granular control
+# instead of simple integer timeouts
+TIMEOUT_VIDEO = aiohttp.ClientTimeout(
+    total=600,       # 10 minutes total for large video files
+    sock_connect=30, # 30 seconds to establish connection
+    sock_read=60     # 60 seconds between read operations
+)
+TIMEOUT_PDF = aiohttp.ClientTimeout(
+    total=120,       # 2 minutes total for PDFs
+    sock_connect=15, # 15 seconds to establish connection
+    sock_read=30     # 30 seconds between read operations
+)
+TIMEOUT_DEFAULT = aiohttp.ClientTimeout(
+    total=60,        # 1 minute total for small files
+    sock_connect=10, # 10 seconds to establish connection
+    sock_read=15     # 15 seconds between read operations
+)
 
 
-def get_adaptive_timeout(filename: str) -> int:
-    """Calculate adaptive timeout based on file type.
+def get_adaptive_timeout(filename: str) -> aiohttp.ClientTimeout:
+    """Return appropriate ClientTimeout based on file type.
+
+    Context7 Best Practice: Use aiohttp.ClientTimeout objects for granular
+    control over different timeout types (total, connect, sock_read).
 
     Args:
         filename: Name of the file to download.
 
     Returns:
-        Timeout in seconds.
+        aiohttp.ClientTimeout configured for the file type.
     """
-    filename_lower = filename.lower()
-    if filename_lower.endswith(('.mp4', '.avi', '.mkv', '.mov', '.webm')):
+    # Robust extension detection: strip query strings and fragments
+    base_name = filename.split('?')[0].split('#')[0]
+    ext = os.path.splitext(base_name)[1].lower()
+
+    if ext in VIDEO_EXTENSIONS:
         return TIMEOUT_VIDEO
-    elif filename_lower.endswith('.pdf'):
+    elif ext in PDF_EXTENSIONS:
         return TIMEOUT_PDF
     else:
         return TIMEOUT_DEFAULT
+
+
+def create_optimized_connector(max_connections: int = 30) -> aiohttp.TCPConnector:
+    """Create an optimized TCPConnector for downloads.
+
+    Context7 Best Practice: Configure TCPConnector with explicit connection
+    limits, DNS caching, and automatic cleanup for better performance.
+
+    Args:
+        max_connections: Maximum total simultaneous connections.
+
+    Returns:
+        Configured TCPConnector instance.
+    """
+    return aiohttp.TCPConnector(
+        limit=max_connections,           # Total connection pool size
+        limit_per_host=10,               # Max connections per host (prevents rate limiting)
+        ttl_dns_cache=300,               # DNS cache TTL: 5 minutes
+        enable_cleanup_closed=True,      # Clean up closed connections from pool
+        force_close=False,               # Reuse connections when possible
+        keepalive_timeout=30,            # Keep connections alive for 30 seconds
+    )
 
 
 class DownloadIndex:
@@ -79,7 +130,10 @@ class DownloadIndex:
         self.index_path = Path(base_dir) / INDEX_FILE
         self.completed: set[str] = set()
         self._lock = threading.Lock()  # Protege acesso concorrente
-        self.load()
+        if not self.index_path.exists():
+            self.save()
+        else:
+            self.load()
 
     def load(self) -> None:
         """Load the index from disk (orjson optimized, called during __init__)."""
@@ -126,7 +180,7 @@ class DownloadIndex:
 async def download_file_async(
     session: aiohttp.ClientSession,
     task: dict[str, str],
-    index: Union[DownloadIndex, DownloadDatabase],
+    index: DownloadIndex | DownloadDatabase,
     semaphore: asyncio.Semaphore,
     pbar: tqdm
 ) -> str:
@@ -200,9 +254,8 @@ async def download_file_async(
                 # Create parent directory
                 os.makedirs(os.path.dirname(path), exist_ok=True)
 
-                # Use adaptive timeout based on file type
-                file_timeout = get_adaptive_timeout(filename)
-                timeout = aiohttp.ClientTimeout(total=file_timeout)
+                # Use adaptive timeout based on file type (Context7 Best Practice)
+                timeout = get_adaptive_timeout(filename)
 
                 async with session.get(url, headers=headers, ssl=False, timeout=timeout) as response:
                     # Check if server supports range requests
@@ -229,7 +282,7 @@ async def download_file_async(
 
                     # Get total size
                     content_length = response.headers.get('content-length')
-                    total_size = int(content_length) if content_length else 0
+                    _total_size = int(content_length) if content_length else 0  # noqa: F841
 
                     # If resuming and server returned 206 Partial Content
                     mode = 'ab' if response.status == 206 else 'wb'
@@ -320,10 +373,23 @@ async def process_download_queue_async(
 
     tqdm.write(f"{Fore.CYAN}● INFO:{Style.RESET_ALL} Iniciando download de {len(pending)} arquivos (async)...")
 
-    connector = aiohttp.TCPConnector(limit=max_workers, limit_per_host=max_workers)
-    timeout = aiohttp.ClientTimeout(total=300)  # 5 min timeout
+    # Context7 Best Practice: Use optimized TCPConnector with DNS caching and connection limits
+    connector = create_optimized_connector(max_connections=max(30, max_workers * 3))
+    default_timeout = aiohttp.ClientTimeout(
+        total=300,       # 5 minutes default total
+        sock_connect=30, # 30 seconds to connect
+        sock_read=60     # 60 seconds between reads
+    )
 
-    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+    async with aiohttp.ClientSession(
+        connector=connector,
+        timeout=default_timeout,
+        headers={
+            'Accept-Encoding': 'gzip, deflate, br',  # Enable compression
+            'Connection': 'keep-alive',               # Reuse connections
+        },
+        raise_for_status=False,  # Handle status codes manually
+    ) as session:
         pbar_config = {
             "desc": "  ⚡ Baixando (async)",
             "unit": " arq",
@@ -362,6 +428,10 @@ def run_async_downloads(
         use_sqlite: If True uses SQLite (default), if False uses JSON fallback.
     """
     try:
-        asyncio.run(process_download_queue_async(queue, base_dir, max_workers, use_sqlite))
+        # Context7 Best Practice: Use uvloop.run() for Python 3.12+
+        if sys.version_info >= (3, 12) and _UVLOOP_AVAILABLE:
+            uvloop.run(process_download_queue_async(queue, base_dir, max_workers, use_sqlite))
+        else:
+            asyncio.run(process_download_queue_async(queue, base_dir, max_workers, use_sqlite))
     except KeyboardInterrupt:
         tqdm.write(f"{Fore.YELLOW}⚠ AVISO:{Style.RESET_ALL} Interrompido pelo usuário. Progresso salvo.")

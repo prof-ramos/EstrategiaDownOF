@@ -1,10 +1,14 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this
+repository.
 
 ## Project Overview
 
-AutoDownload Estratégia Concursos is a Python-based downloader optimized for macOS that automatically downloads courses from Estratégia Concursos platform. The project emphasizes performance, resilience, and user experience with async downloads, SQLite-based tracking, automatic retry mechanisms, and optional FFmpeg video compression.
+AutoDownload Estratégia Concursos is a Python-based downloader optimized for macOS that
+automatically downloads courses from Estratégia Concursos platform. The project emphasizes
+performance, resilience, and user experience with async downloads, SQLite-based tracking, automatic
+retry mechanisms, and optional FFmpeg video compression.
 
 ## Project Structure
 
@@ -26,16 +30,19 @@ docs/                          # Documentation
 
 ### Entry Point & Flow
 
-- **src/estrategia_downloader/main.py**: Main orchestrator that handles authentication, course/lesson scraping, and download coordination
+- **src/estrategia_downloader/main.py**: Main orchestrator that handles authentication,
+  course/lesson scraping, and download coordination
   - Uses Selenium for browser automation and cookie persistence
   - Delegates actual downloads to async_downloader.py
   - Supports both async (default, fast) and sync (fallback) download modes
   - After downloading a course, optionally compresses videos via compress_videos.py
 
 ### Download System (Dual-Mode)
+
 The system supports two download modes:
 
 1. **Async Mode (Default)**: async_downloader.py (340 lines)
+
    - Uses aiohttp + aiofiles for high-performance async I/O
    - Enhanced with uvloop on macOS/Linux (30-40% faster)
    - Parallel downloads with configurable workers (default: 4)
@@ -47,7 +54,9 @@ The system supports two download modes:
    - Less performant but more stable for some edge cases
 
 ### Tracking System (Dual-Backend)
+
 - **download_database.py** (678 lines): SQLite-based tracking system (v2.0+)
+
   - Primary database: `download_index.db`
   - Rich metadata: course name, lesson name, file type, size, SHA-256 hash, timestamps
   - Thread-safe with locks for concurrent access
@@ -60,6 +69,7 @@ The system supports two download modes:
   - Deprecated but still functional
 
 ### UI Components
+
 - **ui.py** (268 lines): Terminal UI utilities
   - ASCII art headers with rounded borders
   - Status lines with colored icons (✓, ●, ⚠, ✗)
@@ -67,6 +77,7 @@ The system supports two download modes:
   - All visual elements use Unicode box-drawing characters
 
 ### Video Compression
+
 - **compress_videos.py** (359 lines): FFmpeg-based video compression
   - Supports H.265 (better compression) and H.264 (compatibility)
   - Quality presets: high (CRF 18), balanced (CRF 23), small (CRF 28)
@@ -76,6 +87,7 @@ The system supports two download modes:
 ## Common Commands
 
 ### Setup
+
 ```bash
 # Create virtual environment and install dependencies
 python3 -m venv .venv
@@ -84,6 +96,7 @@ pip install -r requirements.txt
 ```
 
 ### Running Downloads
+
 ```bash
 # Basic usage (async mode, headless after first login)
 python main.py
@@ -110,7 +123,8 @@ python main.py --stats
 python main.py --verify
 ```
 
-### Video Compression
+### Compressing Videos
+
 ```bash
 # Dry-run (show what would be compressed)
 python compress_videos.py --dry-run
@@ -135,6 +149,7 @@ python compress_videos.py --workers 4
 ```
 
 ### Testing
+
 ```bash
 # Test download database functionality
 python test_download_database.py
@@ -149,6 +164,7 @@ python demo_ui.py
 ## Key Technical Details
 
 ### Performance Optimizations
+
 - **orjson**: 10x faster JSON parsing (fallback to stdlib json)
 - **uvloop**: 30-40% faster async on macOS/Linux (auto-detected)
 - **Connection pooling**: Reused HTTP connections via requests.Session
@@ -157,6 +173,7 @@ python demo_ui.py
 - **Batch operations**: mark_completed_batch() to reduce I/O
 
 ### Retry & Resilience
+
 - Exponential backoff: 2s, 4s, 8s delays over 4 attempts
 - Network errors preserve .part files for resume
 - Other errors clean up .part files to prevent corruption
@@ -164,13 +181,15 @@ python demo_ui.py
 - HTTP 206 (Partial Content) for resume support
 
 ### Authentication & Session Management
+
 - First run: Opens browser for manual login, saves cookies to `cookies.json`
 - Subsequent runs: Reuses saved cookies (no browser needed with --headless)
 - Session validation before starting downloads
 - Cookie expiration handling with re-login
 
 ### File Organization Pattern
-```
+
+```text
 Base Directory/
   ├── Course_Name/
   │   ├── Lesson_01_Title/
@@ -184,6 +203,7 @@ Base Directory/
 ```
 
 ### Download Tracking Schema (SQLite)
+
 ```sql
 downloads (
   id, file_path [UNIQUE], file_name, url,
@@ -194,36 +214,44 @@ downloads (
 ```
 
 ### Database API Compatibility
+
 Both DownloadDatabase (SQLite) and DownloadIndex (JSON) implement:
+
 - `is_downloaded(file_path) -> bool`
-- `mark_downloaded(file_path, ...) -> None`  # DownloadDatabase has metadata params
-- `mark_completed(file_path) -> None`  # Legacy DownloadIndex only
+- `mark_downloaded(file_path, ...) -> None` # DownloadDatabase has metadata params
+- `mark_completed(file_path) -> None` # Legacy DownloadIndex only
 
 ## Important Constraints
 
 ### macOS-Specific
+
 - Default download path is iCloud Drive: `~/Library/Mobile Documents/com~apple~CloudDocs/...`
 - FFmpeg installation: `brew install ffmpeg`
 - Uses Chrome or Edge for Selenium (Safari not supported)
 
 ### Selenium/Browser
+
 - Requires Chrome or Edge installed
 - Uses webdriver-manager for automatic driver management
 - Never use `git commit` flags like `-i` (interactive) with Selenium/automation
 
 ### File Naming
+
 - Sanitization removes: `< > : " / \ | ? * . ,` and spaces → underscores
 - See `sanitize_filename()` in main.py for exact logic
 
 ### Thread Safety
+
 - DownloadDatabase uses threading.Lock for concurrent access
 - DownloadIndex snapshots the set before iteration to avoid RuntimeError
 - Both safe for use with ThreadPoolExecutor and asyncio
 
 ## Migration Notes
 
-### JSON → SQLite Migration
+### JSON to SQLite Migration
+
 When upgrading from v1.x to v2.0+:
+
 1. System auto-detects `download_index.json` on first run
 2. Creates `download_index.db` and migrates data
 3. Backs up JSON as `download_index.json.backup.TIMESTAMP`
@@ -232,35 +260,45 @@ When upgrading from v1.x to v2.0+:
 To force JSON mode: `python main.py --use-json`
 
 ### Adding New File Types
+
 When adding support for new downloadable file types:
+
 1. Add file type detection logic in main.py link collection
 2. Update `file_type` parameter in `mark_downloaded()` calls
 3. Consider updating statistics display if relevant
 
 ## Video Compression Integration
 
-Video compression happens automatically after each course download completes (if FFmpeg is available). The integration is in `compress_course_videos()` at main.py:715.
+Video compression happens automatically after each course download completes (if FFmpeg is
+available). The integration is in `compress_course_videos()` at main.py:715.
 
 Settings:
+
 - Codec: H.265 (best compression)
 - Quality: Balanced (CRF 23)
 - Workers: 2 parallel compressions
 - Delete originals: Yes
 
-To disable auto-compression, comment out the call in the course loop at main.py (search for `compress_course_videos`).
+To disable auto-compression, comment out the call in the course loop at main.py (search for
+`compress_course_videos`).
 
 ## Troubleshooting Patterns
 
-### No space left on device (Errno 28)
+### No Space Left on Device (Errno 28)
+
 Downloads stop, .part files preserved. After freeing space: just re-run, script resumes.
 
-### SSL certificate errors
-Already disabled via `ssl._create_default_https_context = _create_unverified_context` and `SESSION.verify = False`.
+### SSL Certificate Errors
+
+Already disabled via `ssl._create_default_https_context = _create_unverified_context` and
+`SESSION.verify = False`.
 
 ### "Nenhum arquivo encontrado nesta aula"
+
 Normal warning for unpublished lessons or exercise-only content. Not an error.
 
-### Cookie expiration
+### Cookie Expiration
+
 Delete `cookies.json`, re-run without `--headless` to login again.
 
 ## Code Style Notes

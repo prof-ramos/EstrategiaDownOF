@@ -319,11 +319,11 @@ class DownloadDatabase:
 
 **Tarefas:**
 
-- [ ] Criar classe `DownloadDatabase`
-- [ ] Implementar schema SQLite
-- [ ] Implementar métodos CRUD básicos
-- [ ] Adicionar thread-safety com locks
-- [ ] Implementar cálculo de hash SHA-256
+- [x] Criar classe `DownloadDatabase`
+- [x] Implementar schema SQLite
+- [x] Implementar métodos CRUD básicos
+- [x] Adicionar thread-safety com locks
+- [x] Implementar cálculo de hash SHA-256
 
 **Arquivos afetados:**
 
@@ -335,10 +335,10 @@ class DownloadDatabase:
 
 **Tarefas:**
 
-- [ ] Implementar `migrate_from_json()`
-- [ ] Auto-detectar JSON antigo no `__init__`
-- [ ] Preservar dados durante migração
-- [ ] Criar backup antes de migrar
+- [x] Implementar `migrate_from_json()`
+- [x] Auto-detectar JSON antigo no `__init__`
+- [x] Preservar dados durante migração
+- [x] Criar backup antes de migrar
 
 **Arquivos afetados:**
 
@@ -350,10 +350,10 @@ class DownloadDatabase:
 
 **Tarefas:**
 
-- [ ] Substituir `DownloadIndex` por `DownloadDatabase` em `async_downloader.py`
-- [ ] Atualizar `main.py` para usar nova classe
-- [ ] Manter interface compatível (métodos is_completed, mark_completed)
-- [ ] Adicionar parâmetro `--use-json` para fallback
+- [x] Substituir `DownloadIndex` por `DownloadDatabase` em `async_downloader.py`
+- [x] Atualizar `main.py` para usar nova classe
+- [x] Manter interface compatível (métodos is_completed, mark_completed)
+- [x] Adicionar parâmetro `--use-json` para fallback
 
 **Arquivos afetados:**
 
@@ -366,9 +366,8 @@ class DownloadDatabase:
 
 **Tarefas:**
 
-- [ ] Implementar `verify_file_integrity()`
-- [ ] Adicionar comando `--verify` para verificar downloads
-- [ ] Adicionar comando `--redownload-corrupted`
+- [x] Adicionar comando `--verify` para verificar downloads
+- [ ] Adicionar comando `--redownload-corrupted` (planejado)
 
 **Arquivos afetados:**
 
@@ -381,9 +380,9 @@ class DownloadDatabase:
 
 **Tarefas:**
 
-- [ ] Implementar `get_statistics()`
-- [ ] Adicionar comando `--stats` para exibir estatísticas
-- [ ] Criar relatório em formato texto/JSON
+- [x] Implementar `get_statistics()`
+- [x] Adicionar comando `--stats` para exibir estatísticas
+- [x] Criar relatório em formato texto/JSON
 
 **Arquivos afetados:**
 
@@ -397,11 +396,11 @@ class DownloadDatabase:
 
 **Tarefas:**
 
-- [ ] Criar `test_download_database.py`
-- [ ] Testar CRUD operations
-- [ ] Testar migration de JSON para SQLite
-- [ ] Testar thread-safety
-- [ ] Testar integridade de arquivos
+- [x] Criar `test_download_database.py`
+- [x] Testar CRUD operations
+- [x] Testar migration de JSON para SQLite
+- [x] Testar thread-safety
+- [x] Testar integridade de arquivos
 
 **Arquivos afetados:**
 
@@ -413,10 +412,10 @@ class DownloadDatabase:
 
 **Tarefas:**
 
-- [ ] Atualizar README.md com novo sistema
-- [ ] Documentar comandos `--verify`, `--stats`
-- [ ] Adicionar exemplos de uso
-- [ ] Atualizar CHANGELOG.md
+- [x] Atualizar README.md com novo sistema
+- [x] Documentar comandos `--verify`, `--stats`
+- [x] Adicionar exemplos de uso
+- [x] Atualizar CHANGELOG.md
 
 **Arquivos afetados:**
 
@@ -596,4 +595,6 @@ Primeira execução:
 
 **Data:** 2025-12-31
 
-**Versão:** 1.0
+**Versão:** 2.0 (Especificação)
+
+**Status:** ✅ **ESPECIFICAÇÃO COMPLETA** (Aguardando implementação final de comandos de correção)

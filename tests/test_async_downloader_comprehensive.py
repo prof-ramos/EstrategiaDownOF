@@ -1,22 +1,21 @@
 """Comprehensive tests for async_downloader.py - Async download testing."""
 import asyncio
 import os
-import tempfile
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-import pytest
 import aiohttp
+import pytest
 
-from async_downloader import (
+from src.estrategia_downloader.async_downloader import (
+    INITIAL_RETRY_DELAY,
+    MAX_RETRIES,
     DownloadIndex,
     download_file_async,
     process_download_queue_async,
     run_async_downloads,
-    MAX_RETRIES,
-    INITIAL_RETRY_DELAY
 )
-from download_database import DownloadDatabase
+from src.estrategia_downloader.download_database import DownloadDatabase
 
 
 class TestDownloadIndex:
@@ -27,6 +26,7 @@ class TestDownloadIndex:
         """Test DownloadIndex initialization."""
         index = DownloadIndex(temp_dir)
         assert index.completed == set()
+        # Modificado: DownloadIndex agora cria o arquivo no __init__ se não existir
         assert index.index_path.exists()
 
     @pytest.mark.unit
@@ -195,12 +195,12 @@ class TestDownloadFileAsync:
         semaphore = asyncio.Semaphore(1)
         pbar = MagicMock()
 
-        result = await download_file_async(mock_session, sample_download_task, index, semaphore, pbar)
+        _result = await download_file_async(mock_session, sample_download_task, index, semaphore, pbar)
 
         # Should verify Range header was included
         call_args = mock_session.get.call_args
         if call_args and len(call_args) > 0:
-            headers = call_args[1].get('headers', {}) if len(call_args) > 1 else {}
+            _headers = call_args[1].get('headers', {}) if len(call_args) > 1 else {}
             # Range header should be set when resuming
             # This test verifies the resume logic is triggered
 
@@ -245,10 +245,13 @@ class TestDownloadFileAsync:
         # Mock session that fails multiple times then succeeds
         call_count = {'count': 0}
 
-        async def mock_get_with_failures(*args, **kwargs):
+        def mock_get_with_failures(*args, **kwargs):
             call_count['count'] += 1
             if call_count['count'] < 3:
-                raise aiohttp.ClientError("Network error")
+                # Retornar um objeto que lança erro ao entrar no contexto
+                mock_cm = MagicMock()
+                mock_cm.__aenter__ = AsyncMock(side_effect=aiohttp.ClientError("Network error"))
+                return mock_cm
 
             # Third attempt succeeds
             mock_response = MagicMock()
@@ -272,10 +275,13 @@ class TestDownloadFileAsync:
         semaphore = asyncio.Semaphore(1)
         pbar = MagicMock()
 
-        result = await download_file_async(mock_session, sample_download_task, index, semaphore, pbar)
+        # Usar delay menor para os testes serem rápidos
+        with patch('src.estrategia_downloader.async_downloader.INITIAL_RETRY_DELAY', 0.01):
+            result = await download_file_async(mock_session, sample_download_task, index, semaphore, pbar)
 
         # Should eventually succeed after retries
-        assert call_count['count'] >= 2
+        assert call_count['count'] >= 3
+        assert "Baixado" in result
 
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -285,8 +291,10 @@ class TestDownloadFileAsync:
         sample_download_task['path'] = os.path.join(temp_dir, "test.mp4")
 
         # Mock session that always fails
-        async def mock_get_always_fails(*args, **kwargs):
-            raise aiohttp.ClientError("Permanent network error")
+        def mock_get_always_fails(*args, **kwargs):
+            mock_cm = MagicMock()
+            mock_cm.__aenter__ = AsyncMock(side_effect=aiohttp.ClientError("Permanent network error"))
+            return mock_cm
 
         mock_session = MagicMock()
         mock_session.get = mock_get_always_fails
@@ -294,7 +302,8 @@ class TestDownloadFileAsync:
         semaphore = asyncio.Semaphore(1)
         pbar = MagicMock()
 
-        result = await download_file_async(mock_session, sample_download_task, index, semaphore, pbar)
+        with patch('src.estrategia_downloader.async_downloader.INITIAL_RETRY_DELAY', 0.01):
+            result = await download_file_async(mock_session, sample_download_task, index, semaphore, pbar)
 
         assert "Falha" in result or "tentativas" in result
 
@@ -324,7 +333,7 @@ class TestDownloadFileAsync:
         semaphore = asyncio.Semaphore(1)
         pbar = MagicMock()
 
-        result = await download_file_async(mock_session, sample_download_task, db, semaphore, pbar)
+        _result = await download_file_async(mock_session, sample_download_task, db, semaphore, pbar)
 
         # Verify file was marked in database
         assert db.is_downloaded(sample_download_task['path'])
@@ -366,7 +375,7 @@ class TestProcessDownloadQueueAsync:
     @pytest.mark.integration
     async def test_concurrent_downloads(self, temp_dir):
         """Test concurrent download processing."""
-        queue = [
+        _queue = [
             {
                 'url': f'https://example.com/{i}.mp4',
                 'path': os.path.join(temp_dir, f'{i}.mp4'),
