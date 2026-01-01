@@ -14,7 +14,7 @@ from colorama import Fore, Style
 from tqdm import tqdm
 
 # Import new DownloadDatabase
-from download_database import DownloadDatabase
+from .download_database import DownloadDatabase
 
 # Use uvloop on macOS/Linux for 30-40% faster async (fallback on Windows/if not installed)
 if sys.platform != 'win32':

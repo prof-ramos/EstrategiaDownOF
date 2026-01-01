@@ -40,6 +40,10 @@ env/
 # Project specific
 cookies.json
 *.log
+download_index.json
+download_index.db
+*.part
+*.db-journal
 
 # macOS
 .DS_Store

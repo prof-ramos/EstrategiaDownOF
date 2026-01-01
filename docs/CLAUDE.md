@@ -6,10 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AutoDownload Estratégia Concursos is a Python-based downloader optimized for macOS that automatically downloads courses from Estratégia Concursos platform. The project emphasizes performance, resilience, and user experience with async downloads, SQLite-based tracking, automatic retry mechanisms, and optional FFmpeg video compression.
 
+## Project Structure
+
+```text
+src/estrategia_downloader/    # Main package
+├── __init__.py                # Package exports
+├── main.py                    # Entry point and orchestrator
+├── async_downloader.py        # Async download engine
+├── download_database.py       # SQLite tracking system
+├── compress_videos.py         # FFmpeg video compression
+├── ui.py                      # Terminal UI components
+└── performance_monitor.py     # Performance metrics
+tests/                         # Test suite (250+ tests)
+scripts/                       # Utility scripts
+docs/                          # Documentation
+```
+
 ## Core Architecture
 
 ### Entry Point & Flow
-- **main.py** (962 lines): Main orchestrator that handles authentication, course/lesson scraping, and download coordination
+
+- **src/estrategia_downloader/main.py**: Main orchestrator that handles authentication, course/lesson scraping, and download coordination
   - Uses Selenium for browser automation and cookie persistence
   - Delegates actual downloads to async_downloader.py
   - Supports both async (default, fast) and sync (fallback) download modes

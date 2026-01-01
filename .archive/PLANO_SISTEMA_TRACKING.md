@@ -7,7 +7,6 @@
 **Localização:** `async_downloader.py:46-91`
 
 **Implementação Atual:**
-
 ```python
 class DownloadIndex:
     def __init__(self, base_dir: str):
@@ -19,15 +18,16 @@ class DownloadIndex:
 ```
 
 **Formato do JSON:**
-
 ```json
 {
-  "completed": ["/path/to/Curso/Aula_01/Video_720p.mp4", "/path/to/Curso/Aula_01/PDF_Original.pdf"]
+  "completed": [
+    "/path/to/Curso/Aula_01/Video_720p.mp4",
+    "/path/to/Curso/Aula_01/PDF_Original.pdf"
+  ]
 }
 ```
 
 **Uso no código:**
-
 - `main.py:288` - Modo síncrono
 - `async_downloader.py:226` - Modo assíncrono
 - Verifica antes de baixar: `if not index.is_completed(path) and not os.path.exists(path)`
@@ -37,7 +37,6 @@ class DownloadIndex:
 ## ⚠️ Limitações do Sistema Atual
 
 ### 1. **Falta de Metadados**
-
 - ❌ Não armazena data/hora do download
 - ❌ Não armazena tamanho do arquivo
 - ❌ Não armazena URL original
@@ -45,31 +44,26 @@ class DownloadIndex:
 - ❌ Não relaciona arquivo com curso/aula
 
 ### 2. **Sem Validação de Integridade**
-
 - ❌ Não detecta arquivos corrompidos
 - ❌ Não detecta arquivos deletados do disco
 - ❌ Não verifica se o arquivo ainda existe
 
 ### 3. **Performance e Escalabilidade**
-
 - ⚠️ Carrega todo o set na memória
 - ⚠️ Salva o arquivo inteiro a cada `mark_completed()`
 - ⚠️ Com milhares de arquivos pode ser lento
 
 ### 4. **Dificuldade de Consulta**
-
 - ❌ Não permite queries como "todos os downloads de um curso"
 - ❌ Não permite filtrar por data, tipo de arquivo, etc.
 - ❌ Difícil debugar problemas
 
 ### 5. **Sem Histórico e Estatísticas**
-
 - ❌ Não mantém histórico de tentativas
 - ❌ Não rastreia erros de download
 - ❌ Não fornece estatísticas (total baixado, tempo médio, etc.)
 
 ### 6. **Race Conditions Potenciais**
-
 - ⚠️ Embora tenha locks, salvar em cada operação pode causar I/O excessivo
 - ⚠️ Batch operations não são usadas consistentemente
 
@@ -78,9 +72,7 @@ class DownloadIndex:
 ## 🔄 Comparação de Soluções
 
 ### Opção 1: JSON Melhorado
-
 **Prós:**
-
 - ✅ Zero dependências externas
 - ✅ Fácil de debugar (arquivo legível)
 - ✅ Portável entre sistemas
@@ -88,14 +80,12 @@ class DownloadIndex:
 - ✅ Compatível com sistema atual
 
 **Contras:**
-
 - ❌ Performance degrada com muitos arquivos (>10k)
 - ❌ Sem queries complexas
 - ❌ Carrega tudo na memória
 - ❌ Writes frequentes podem ser lentos
 
 **Melhorias possíveis:**
-
 ```json
 {
   "version": "2.0",
@@ -122,9 +112,7 @@ class DownloadIndex:
 ---
 
 ### Opção 2: SQLite ⭐ RECOMENDADO
-
 **Prós:**
-
 - ✅ Zero dependências (built-in no Python)
 - ✅ Performance excelente mesmo com 100k+ registros
 - ✅ Queries SQL complexas (filtros, joins, agregações)
@@ -135,12 +123,10 @@ class DownloadIndex:
 - ✅ Backup simples (copiar arquivo .db)
 
 **Contras:**
-
 - ⚠️ Arquivo binário (não legível em editor de texto)
 - ⚠️ Requer migration do sistema atual
 
 **Schema proposto:**
-
 ```sql
 CREATE TABLE downloads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,15 +165,12 @@ CREATE TABLE download_statistics (
 ---
 
 ### Opção 3: Banco de Dados Externo (PostgreSQL, MySQL)
-
 **Prós:**
-
 - ✅ Performance máxima em escala
 - ✅ Suporte a múltiplos clientes
 - ✅ Features avançadas
 
 **Contras:**
-
 - ❌ Requer servidor externo
 - ❌ Dependências pesadas
 - ❌ Configuração complexa
@@ -198,14 +181,11 @@ CREATE TABLE download_statistics (
 ---
 
 ### Opção 4: Pickle/Shelve
-
 **Prós:**
-
 - ✅ Built-in no Python
 - ✅ Serialização rápida
 
 **Contras:**
-
 - ❌ Arquivo binário não portável
 - ❌ Vulnerável a ataques (unpickling)
 - ❌ Sem queries
@@ -220,15 +200,13 @@ CREATE TABLE download_statistics (
 ### Arquitetura Proposta
 
 **Sistema Híbrido:**
-
 1. **SQLite como principal** - Para performance e queries
 2. **JSON como fallback** - Para compatibilidade e backup
 3. **Migration automática** - Converte JSON antigo para SQLite
 4. **Export JSON** - Permite exportar para debugging
 
 ### Estrutura de Arquivos
-
-```text
+```
 /home/user/.../Estudo/Estrategia/
 ├── download_index.db        # SQLite database (novo)
 ├── download_index.json      # JSON backup (compatibilidade)
@@ -286,7 +264,6 @@ class DownloadDatabase:
 ### Fase 2: Migration do Sistema Antigo
 
 **Features:**
-
 - Auto-detecta `download_index.json` antigo
 - Migra para SQLite preservando dados
 - Mantém JSON como backup
@@ -295,7 +272,6 @@ class DownloadDatabase:
 ### Fase 3: Verificação de Integridade
 
 **Features:**
-
 - Calcula SHA-256 dos arquivos baixados
 - Verifica se arquivo ainda existe no disco
 - Detecta arquivos corrompidos
@@ -304,7 +280,6 @@ class DownloadDatabase:
 ### Fase 4: Estatísticas e Relatórios
 
 **Features:**
-
 - Total de arquivos baixados
 - Total de bytes baixados
 - Downloads por curso/aula
@@ -316,9 +291,7 @@ class DownloadDatabase:
 ## 📋 Plano de Implementação Detalhado
 
 ### Step 1: Criar `download_database.py`
-
 **Tarefas:**
-
 - [ ] Criar classe `DownloadDatabase`
 - [ ] Implementar schema SQLite
 - [ ] Implementar métodos CRUD básicos
@@ -326,67 +299,54 @@ class DownloadDatabase:
 - [ ] Implementar cálculo de hash SHA-256
 
 **Arquivos afetados:**
-
 - `download_database.py` (novo)
 
 ---
 
 ### Step 2: Migration Automática
-
 **Tarefas:**
-
 - [ ] Implementar `migrate_from_json()`
 - [ ] Auto-detectar JSON antigo no `__init__`
 - [ ] Preservar dados durante migração
 - [ ] Criar backup antes de migrar
 
 **Arquivos afetados:**
-
 - `download_database.py`
 
 ---
 
 ### Step 3: Integração com Código Existente
-
 **Tarefas:**
-
 - [ ] Substituir `DownloadIndex` por `DownloadDatabase` em `async_downloader.py`
 - [ ] Atualizar `main.py` para usar nova classe
 - [ ] Manter interface compatível (métodos is_completed, mark_completed)
 - [ ] Adicionar parâmetro `--use-json` para fallback
 
 **Arquivos afetados:**
-
 - `async_downloader.py` (modificar)
 - `main.py` (modificar)
 
 ---
 
 ### Step 4: Verificação de Integridade
-
 **Tarefas:**
-
 - [ ] Implementar `verify_file_integrity()`
 - [ ] Adicionar comando `--verify` para verificar downloads
 - [ ] Adicionar comando `--redownload-corrupted`
 
 **Arquivos afetados:**
-
 - `download_database.py`
 - `main.py` (adicionar CLI args)
 
 ---
 
 ### Step 5: Estatísticas e Relatórios
-
 **Tarefas:**
-
 - [ ] Implementar `get_statistics()`
 - [ ] Adicionar comando `--stats` para exibir estatísticas
 - [ ] Criar relatório em formato texto/JSON
 
 **Arquivos afetados:**
-
 - `download_database.py`
 - `main.py` (adicionar CLI args)
 - `ui.py` (adicionar formatação de stats)
@@ -394,9 +354,7 @@ class DownloadDatabase:
 ---
 
 ### Step 6: Testes
-
 **Tarefas:**
-
 - [ ] Criar `test_download_database.py`
 - [ ] Testar CRUD operations
 - [ ] Testar migration de JSON para SQLite
@@ -404,22 +362,18 @@ class DownloadDatabase:
 - [ ] Testar integridade de arquivos
 
 **Arquivos afetados:**
-
 - `test_download_database.py` (novo)
 
 ---
 
 ### Step 7: Documentação
-
 **Tarefas:**
-
 - [ ] Atualizar README.md com novo sistema
 - [ ] Documentar comandos `--verify`, `--stats`
 - [ ] Adicionar exemplos de uso
 - [ ] Atualizar CHANGELOG.md
 
 **Arquivos afetados:**
-
 - `README.md`
 - `CHANGELOG.md`
 
@@ -469,27 +423,23 @@ db.export_to_json("/path/to/backup.json")
 ## 🎁 Benefícios do Novo Sistema
 
 ### Performance
-
 - ⚡ **10-100x mais rápido** em queries com muitos arquivos
 - ⚡ **Menor uso de memória** - não carrega tudo de uma vez
 - ⚡ **Writes mais eficientes** - transações em batch
 
 ### Funcionalidades
-
 - 📊 **Estatísticas detalhadas** - total baixado, por curso, por tipo
 - 🔍 **Queries avançadas** - filtrar por curso, data, tipo
 - ✅ **Verificação de integridade** - detecta arquivos corrompidos
 - 📝 **Histórico completo** - quando foi baixado, quantas tentativas
 
 ### Confiabilidade
-
 - 🛡️ **Transações ACID** - dados sempre consistentes
 - 🔒 **Thread-safe** - suporta downloads paralelos
 - 💾 **Backup automático** - export JSON quando necessário
 - 🔄 **Migration automática** - preserva dados antigos
 
 ### Manutenibilidade
-
 - 🐛 **Debugging mais fácil** - queries SQL para investigar problemas
 - 📦 **Zero dependências** - SQLite é built-in no Python
 - 🔧 **Ferramentas existentes** - DB Browser for SQLite, etc.
@@ -499,19 +449,16 @@ db.export_to_json("/path/to/backup.json")
 ## 🚀 Estratégia de Rollout
 
 ### Fase 1: Desenvolvimento e Testes (1-2 dias)
-
 - Criar `download_database.py`
 - Implementar testes unitários
 - Testar migration
 
 ### Fase 2: Integração (1 dia)
-
 - Integrar com `async_downloader.py` e `main.py`
 - Testar com dados reais
 - Garantir compatibilidade reversa
 
 ### Fase 3: Release (1 dia)
-
 - Atualizar documentação
 - Criar PR com mudanças
 - Testar em ambiente real
@@ -520,16 +467,14 @@ db.export_to_json("/path/to/backup.json")
 
 ## 🔄 Compatibilidade Reversa
 
-### Garantias
+### Garantias:
+✅ Sistema antigo continua funcionando com `--use-json`
+✅ Migration automática preserva dados
+✅ Interface compatível (is_completed, mark_completed)
+✅ JSON backup sempre disponível
 
-- ✅ Sistema antigo continua funcionando com `--use-json`
-- ✅ Migration automática preserva dados
-- ✅ Interface compatível (is_completed, mark_completed)
-- ✅ JSON backup sempre disponível
-
-### Migration Path
-
-```text
+### Migration Path:
+```
 Primeira execução:
 1. Detecta download_index.json
 2. Cria download_index.db
@@ -543,7 +488,7 @@ Primeira execução:
 ## 📊 Comparação Final
 
 | Feature                  | JSON Atual | JSON Melhorado | SQLite (Recomendado) |
-| ------------------------ | ---------- | -------------- | -------------------- |
+|--------------------------|------------|----------------|----------------------|
 | Performance (1k files)   | ⚠️ Médio   | ⚠️ Médio       | ✅ Excelente         |
 | Performance (100k files) | ❌ Ruim    | ❌ Ruim        | ✅ Excelente         |
 | Queries complexas        | ❌ Não     | ❌ Não         | ✅ Sim               |
@@ -571,11 +516,8 @@ Primeira execução:
 7. ✅ **Estatísticas detalhadas** - Reports e analytics
 
 **Esforço estimado:** 3-4 dias de desenvolvimento e testes
-
 **Complexidade:** Média
-
 **Risco:** Baixo (compatibilidade reversa garantida)
-
 **Benefício:** Alto (performance + features + confiabilidade)
 
 ---
@@ -593,7 +535,5 @@ Primeira execução:
 ---
 
 **Autor:** Claude Code
-
 **Data:** 2025-12-31
-
 **Versão:** 1.0
