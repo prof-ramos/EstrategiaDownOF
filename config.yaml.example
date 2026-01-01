@@ -1,0 +1,154 @@
+# Arquivo de configuração para EstrategiaDownOF
+# Copie para config.yaml e ajuste conforme necessário
+#
+# Uso: python main.py --config config.yaml
+
+# Configurações de Download
+download:
+  # Número de downloads simultâneos
+  workers: 8
+
+  # Timeout de requisições em segundos
+  timeout: 120
+
+  # Número de tentativas em caso de falha
+  retry_attempts: 4
+
+  # Delay inicial entre retries (em segundos)
+  retry_delay: 2.0
+
+  # Modo assíncrono (true) ou síncrono (false)
+  use_async: true
+
+  # Tamanho do chunk para downloads (bytes)
+  chunk_size: 131072  # 128KB
+
+# Configurações de Compressão de Vídeo
+compression:
+  # Habilitar compressão automática após download
+  enabled: true
+
+  # Codec: h265 (melhor compressão) ou h264 (compatibilidade)
+  codec: h265
+
+  # Qualidade: high (CRF 18), balanced (CRF 23), small (CRF 28)
+  quality: balanced
+
+  # Deletar originais após comprimir com sucesso
+  delete_originals: false
+
+  # Número de compressões simultâneas
+  workers: 2
+
+# Sistema de Tracking
+tracking:
+  # Usar SQLite (true) ou JSON legado (false)
+  use_sqlite: true
+
+  # Verificar integridade dos arquivos baixados
+  verify_integrity: true
+
+  # Calcular hash SHA-256 para verificação
+  compute_hash: true
+
+# Configurações de Selenium
+selenium:
+  # Modo headless (sem janela do navegador)
+  headless: true
+
+  # Tempo de espera para login manual (segundos)
+  wait_time: 60
+
+  # Bloquear imagens para acelerar scraping
+  block_images: true
+
+  # Bloquear notificações
+  block_notifications: true
+
+# Caminhos
+paths:
+  # Diretório para salvar downloads
+  download_dir: ~/Downloads/Cursos
+
+  # Arquivo de cookies (login persistente)
+  cookies_file: cookies.json
+
+  # Arquivo de log (null = sem log de arquivo)
+  log_file: estrategia_downloader.log
+
+# Logging
+logging:
+  # Nível de log: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: INFO
+
+  # Mostrar logs no console
+  console: true
+
+  # Formato de data/hora nos logs
+  date_format: "%Y-%m-%d %H:%M:%S"
+
+# Filtros de Download (opcional)
+filters:
+  # Baixar apenas tipos específicos (null = todos)
+  # Opções: video, pdf, material
+  file_types: null  # Exemplo: [video, pdf]
+
+  # Baixar apenas cursos específicos (null = todos)
+  # Lista de nomes de cursos (ou parte deles)
+  courses: null  # Exemplo: ["Python", "JavaScript"]
+
+  # Excluir cursos específicos
+  exclude_courses: null  # Exemplo: ["Curso Antigo"]
+
+  # Baixar apenas aulas com data mínima (formato: YYYY-MM-DD)
+  min_date: null  # Exemplo: "2025-01-01"
+
+  # Baixar apenas aulas com data máxima
+  max_date: null
+
+# Rate Limiting (respeitar limites do servidor)
+rate_limit:
+  # Habilitar rate limiting
+  enabled: false
+
+  # Máximo de requisições por minuto
+  requests_per_minute: 60
+
+  # Delay mínimo entre requisições (segundos)
+  min_delay: 0.5
+
+# Notificações
+notifications:
+  # Habilitar notificações desktop
+  enabled: false
+
+  # Notificar ao completar cada curso
+  on_course_complete: true
+
+  # Notificar ao completar todos os downloads
+  on_all_complete: true
+
+# Modo Dry-Run (simular sem baixar)
+dry_run: false
+
+# Avançado
+advanced:
+  # Verificar SSL/TLS (pode causar problemas com alguns certificados)
+  verify_ssl: false
+
+  # User-Agent customizado
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
+  # Usar orjson para JSON mais rápido (se disponível)
+  use_orjson: true
+
+  # Usar uvloop para async mais rápido (macOS/Linux, se disponível)
+  use_uvloop: true
+
+# Exemplo de uso com múltiplos perfis:
+#
+# Perfil 1: Download completo com compressão
+# python main.py --config config_full.yaml
+#
+# Perfil 2: Apenas PDFs, sem compressão
+# python main.py --config config_pdfs_only.yaml
