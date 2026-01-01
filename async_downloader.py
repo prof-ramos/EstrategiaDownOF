@@ -45,6 +45,29 @@ INDEX_FILE = "download_index.json"
 MAX_RETRIES = 4
 INITIAL_RETRY_DELAY = 2.0  # segundos
 
+# Adaptive timeout settings (seconds)
+TIMEOUT_VIDEO = 600      # 10 minutes for videos (large files)
+TIMEOUT_PDF = 120        # 2 minutes for PDFs
+TIMEOUT_DEFAULT = 60     # 1 minute for other files
+
+
+def get_adaptive_timeout(filename: str) -> int:
+    """Calculate adaptive timeout based on file type.
+
+    Args:
+        filename: Name of the file to download.
+
+    Returns:
+        Timeout in seconds.
+    """
+    filename_lower = filename.lower()
+    if filename_lower.endswith(('.mp4', '.avi', '.mkv', '.mov', '.webm')):
+        return TIMEOUT_VIDEO
+    elif filename_lower.endswith('.pdf'):
+        return TIMEOUT_PDF
+    else:
+        return TIMEOUT_DEFAULT
+
 
 class DownloadIndex:
     """Legacy download index - mantido para compatibilidade reversa.
@@ -177,7 +200,11 @@ async def download_file_async(
                 # Create parent directory
                 os.makedirs(os.path.dirname(path), exist_ok=True)
 
-                async with session.get(url, headers=headers, ssl=False) as response:
+                # Use adaptive timeout based on file type
+                file_timeout = get_adaptive_timeout(filename)
+                timeout = aiohttp.ClientTimeout(total=file_timeout)
+
+                async with session.get(url, headers=headers, ssl=False, timeout=timeout) as response:
                     # Check if server supports range requests
                     if response.status == 416:  # Range not satisfiable = file complete
                         if os.path.exists(temp_path):
