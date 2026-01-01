@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  downloader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: estrategia-downloader:latest
+    container_name: estrategia-downloader
+
+    # Recursos
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '2.0'
+          memory: 2G
+
+    # Variáveis de ambiente
+    environment:
+      - DOWNLOAD_DIR=/downloads
+      - WORKERS=${WORKERS:-8}
+      - PYTHONUNBUFFERED=1
+      # Selenium
+      - DISPLAY=:99
+      # Timezone
+      - TZ=America/Sao_Paulo
+
+    # Volumes
+    volumes:
+      # Downloads persistentes
+      - ./downloads:/downloads
+      # Cookies para login persistente
+      - ./cookies.json:/app/cookies.json
+      # Database (opcional)
+      - ./download_index.db:/app/download_index.db
+      # Config (opcional)
+      - ./config.yaml:/app/config.yaml:ro
+
+    # Networking
+    network_mode: bridge
+
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Logging
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Stdin/tty para debug
+    stdin_open: false
+    tty: false
+
+  # Serviço opcional: compressor de vídeos
+  compressor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: estrategia-downloader:latest
+    container_name: estrategia-compressor
+    profiles: ["compression"]
+
+    environment:
+      - DOWNLOAD_DIR=/downloads
+      - WORKERS=2
+
+    volumes:
+      - ./downloads:/downloads
+
+    # Comando customizado para compressão
+    command: ["python", "compress_videos.py", "--dir", "/downloads", "--workers", "2", "--quality", "balanced"]
+
+    restart: "no"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Serviço opcional: stats viewer
+  stats:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: estrategia-downloader:latest
+    container_name: estrategia-stats
+    profiles: ["stats"]
+
+    volumes:
+      - ./download_index.db:/app/download_index.db:ro
+
+    command: ["python", "main.py", "--stats"]
+
+    restart: "no"
+
+# Networks (se precisar de networking customizado)
+networks:
+  default:
+    driver: bridge
+
+# Volumes nomeados (opcional)
+volumes:
+  downloads:
+    driver: local
+  database:
+    driver: local

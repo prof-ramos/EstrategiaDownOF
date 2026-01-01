@@ -40,6 +40,34 @@ env/
 # Project specific
 cookies.json
 *.log
+download_index.db
+download_index.db-journal
+download_index.db-shm
+download_index.db-wal
+*.db
+*.part
+*.backup.*
+download_index.json.backup.*
+config.yaml
+.env
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ruff
+.ruff_cache/
 
 # macOS
 .DS_Store
