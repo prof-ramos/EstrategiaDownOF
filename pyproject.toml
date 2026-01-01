@@ -68,7 +68,15 @@ Issues = "https://github.com/prof-ramos/EstrategiaDownOF/issues"
 Changelog = "https://github.com/prof-ramos/EstrategiaDownOF/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-packages = ["."]
+py-modules = [
+    "main",
+    "async_downloader",
+    "compress_videos",
+    "download_database",
+    "ui",
+    "logger",
+    "demo_ui"
+]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
