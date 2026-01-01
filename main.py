@@ -42,6 +42,7 @@ from async_downloader import run_async_downloads, DownloadIndex
 from download_database import DownloadDatabase
 import ui
 from compress_videos import compress_video_task, find_videos, format_size, check_ffmpeg
+from performance_monitor import metrics, timed, timer
 
 if TYPE_CHECKING:
     from selenium.webdriver.remote.webdriver import WebDriver
@@ -104,6 +105,80 @@ def sanitize_filename(original_filename: str) -> str:
     while '__' in sanitized:
         sanitized = sanitized.replace('__', '_')
     return sanitized.strip('_')
+
+
+def parse_course_selection(selection: str, total_courses: int) -> list[int]:
+    """Parse user selection string into list of course indices.
+
+    Supports:
+        - 'all' or empty: all courses
+        - Single numbers: '1', '3'
+        - Comma-separated: '1,3,5'
+        - Ranges: '1-5'
+        - Combinations: '1,3,5-7,10'
+
+    Args:
+        selection: User input string.
+        total_courses: Total number of available courses.
+
+    Returns:
+        Sorted list of unique 0-indexed course indices.
+
+    Raises:
+        ValueError: If selection is invalid.
+    """
+    selection = selection.strip().lower()
+
+    # Handle 'all' or empty input
+    if not selection or selection == 'all':
+        return list(range(total_courses))
+
+    indices = set()
+
+    for part in selection.split(','):
+        part = part.strip()
+        if not part:
+            continue
+
+        if '-' in part:
+            # Handle range like '1-5'
+            try:
+                start_str, end_str = part.split('-', 1)
+                start = int(start_str.strip())
+                end = int(end_str.strip())
+
+                if start < 1 or end < 1:
+                    raise ValueError(f"Números devem ser positivos: {part}")
+                if start > end:
+                    raise ValueError(f"Intervalo inválido: {part}")
+                if end > total_courses:
+                    raise ValueError(f"Número {end} excede total de cursos ({total_courses})")
+
+                # Convert from 1-indexed to 0-indexed
+                for i in range(start - 1, end):
+                    indices.add(i)
+            except ValueError as e:
+                if "devem ser" in str(e) or "inválido" in str(e) or "excede" in str(e):
+                    raise
+                raise ValueError(f"Formato inválido: {part}") from e
+        else:
+            # Handle single number
+            try:
+                num = int(part)
+                if num < 1:
+                    raise ValueError(f"Número deve ser positivo: {num}")
+                if num > total_courses:
+                    raise ValueError(f"Número {num} excede total de cursos ({total_courses})")
+                indices.add(num - 1)  # Convert to 0-indexed
+            except ValueError as e:
+                if "deve ser" in str(e) or "excede" in str(e):
+                    raise
+                raise ValueError(f"Número inválido: {part}") from e
+
+    if not indices:
+        raise ValueError("Nenhum curso selecionado")
+
+    return sorted(indices)
 
 def retry_with_backoff(func, max_retries: int = 3, initial_delay: float = 2.0):
     """Executa função com retry e backoff exponencial.
@@ -398,6 +473,7 @@ def handle_popups(driver: WebDriver) -> None:
     except Exception:
         pass
 
+@timed
 def scrape_lesson_data(
     driver: WebDriver,
     lesson_info: dict[str, str],
@@ -664,6 +740,7 @@ def scrape_lesson_data(
 
     return download_queue
 
+@timed
 def get_courses_list(driver: WebDriver) -> list[dict[str, str]]:
     """Obtém lista de cursos disponíveis."""
     log_info("Carregando lista de cursos...")
@@ -684,6 +761,7 @@ def get_courses_list(driver: WebDriver) -> list[dict[str, str]]:
     except Exception:
         return []
 
+@timed
 def get_lessons_list(driver: WebDriver, course_url: str) -> list[dict[str, str]]:
     """Obtém lista de aulas de um curso."""
     driver.get(course_url)
@@ -783,6 +861,10 @@ def compress_course_videos(base_dir: str, course_title: str) -> None:
 def main() -> None:
     """Função principal do downloader."""
     global MAX_WORKERS
+
+    # Start total time tracking
+    total_start = time.perf_counter()
+
     # Caminho específico solicitado
     default_path = "/Users/gabrielramos/Library/Mobile Documents/com~apple~CloudDocs/Estudo/Estrategia/Meus Cursos - Estratégia Concursos"
 
@@ -806,6 +888,8 @@ Recursos:
     parser.add_argument('--use-json', action='store_true', help="Usa tracking JSON em vez de SQLite (modo legado)")
     parser.add_argument('--verify', action='store_true', help="Verifica integridade dos arquivos baixados (SHA-256)")
     parser.add_argument('--stats', action='store_true', help="Mostra estatísticas de downloads e sai")
+    parser.add_argument('--list-courses', action='store_true', help="Lista cursos disponíveis e sai")
+    parser.add_argument('--courses', type=str, default=None, help="Seleciona cursos específicos (ex: '1,3,5' ou '1-5' ou 'all')")
     args = parser.parse_args()
 
     # Async é o padrão agora
@@ -921,29 +1005,67 @@ Recursos:
             log_error("Nenhum curso encontrado. Verifique se logou corretamente.")
             return
 
-        for i, course in enumerate(courses, 1):
-            print(ui.course_header(i, len(courses), course['title']))
+        # Handle --list-courses: just list and exit
+        if args.list_courses:
+            print(ui.course_selection_panel(courses))
+            return
+
+        # Handle course selection
+        if args.courses:
+            # User provided selection via CLI
+            try:
+                selected_indices = parse_course_selection(args.courses, len(courses))
+            except ValueError as e:
+                log_error(f"Seleção inválida: {e}")
+                return
+        else:
+            # Interactive mode: show courses and ask for selection
+            print(ui.course_selection_panel(courses))
+            print(ui.selection_prompt(), end='')
+            try:
+                user_input = input()
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n{Fore.YELLOW}Cancelado pelo usuário.{Style.RESET_ALL}")
+                return
+
+            try:
+                selected_indices = parse_course_selection(user_input, len(courses))
+            except ValueError as e:
+                log_error(f"Seleção inválida: {e}")
+                return
+
+        # Filter to selected courses
+        selected_courses = [courses[i] for i in selected_indices]
+        print(ui.selected_courses_summary(selected_courses))
+
+        for i, course in enumerate(selected_courses, 1):
+            print(ui.course_header(i, len(selected_courses), course['title']))
+            metrics.courses_processed += 1
 
             lessons = get_lessons_list(driver, course['url'])
             for j, lesson in enumerate(lessons, 1):
                 print(ui.lesson_header(j, len(lessons), lesson['title']))
+                metrics.lessons_processed += 1
 
-                # 1. Coleta Links (Serial)
-                queue = scrape_lesson_data(driver, lesson, course['title'], save_dir)
+                # 1. Coleta Links (Serial) - Track scraping time
+                with timer("scraping"):
+                    queue = scrape_lesson_data(driver, lesson, course['title'], save_dir)
 
-                # 2. Baixa (Paralelo ou Async)
+                # 2. Baixa (Paralelo ou Async) - Track download time
                 if queue:
                     use_sqlite = not args.use_json  # Use SQLite unless --use-json is specified
-                    if args.use_async:
-                        run_async_downloads(queue, save_dir, MAX_WORKERS, use_sqlite)
-                    else:
-                        process_download_queue(queue, save_dir, use_sqlite)
+                    with timer("download"):
+                        if args.use_async:
+                            run_async_downloads(queue, save_dir, MAX_WORKERS, use_sqlite)
+                        else:
+                            process_download_queue(queue, save_dir, use_sqlite)
                 else:
                     log_warn("  Nenhum arquivo encontrado nesta aula.")
 
             # Após terminar todas as aulas do curso, comprime os vídeos
             try:
-                compress_course_videos(save_dir, course['title'])
+                with timer("compression"):
+                    compress_course_videos(save_dir, course['title'])
             except Exception as comp_error:
                 log_error(f"Falha na compressão do curso '{course['title']}': {comp_error}")
                 # Continua para o próximo curso mesmo se a compressão falhar
@@ -954,8 +1076,29 @@ Recursos:
     except Exception as e:
         log_error(f"Erro fatal: {e}")
     finally:
+        # Calculate total execution time and aggregate metrics
+        metrics.total_time = time.perf_counter() - total_start
+        metrics.scraping_time = metrics.get_total_timing("scraping")
+        metrics.download_time = metrics.get_total_timing("download")
+        metrics.compression_time = metrics.get_total_timing("compression")
+
+        # Get download statistics from database if available
+        if not args.use_json:
+            try:
+                db = DownloadDatabase(save_dir, use_sqlite=True)
+                stats = db.get_statistics()
+                metrics.files_downloaded = stats.get('total_files', 0)
+                metrics.total_bytes = stats.get('total_bytes', 0)
+            except Exception:
+                pass
+
         driver.quit()
         print(f"\n{Fore.CYAN}🌐 Navegador fechado.{Style.RESET_ALL}")
+
+        # Print performance report if any work was done
+        if metrics.total_time > 10:  # Only show if took more than 10 seconds
+            metrics.print_report()
+
         print(ui.goodbye())
 
 if __name__ == "__main__":

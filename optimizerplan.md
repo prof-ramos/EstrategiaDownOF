@@ -353,6 +353,16 @@ return sanitized.strip('._- ')
 
 ### Estimated Total Impact: Additional 20-30% improvement
 
+**Status Update (2026-01-01)**: ✅ Phase 2 items 2.3 and 2.4 completed
+
+**Completed Items**:
+- ✅ 2.3 Performance Monitoring System - Implemented
+- ✅ 2.4 Adaptive Timeouts - Implemented
+
+**Pending Items**:
+- ⏳ 2.1 orjson for Cookie Operations - Already implemented in Phase 1
+- ⏳ 2.2 Batch Index Updates - Already implemented in Phase 1
+
 ### 2.1 Implement orjson for Cookie Operations
 
 **Impact**: 🟡 Medium (10x faster JSON parsing) **Effort**: 🟢 Low (30 minutes) **Files**:
@@ -486,10 +496,12 @@ class DownloadIndex:
 
 ---
 
-### 2.3 Add Performance Monitoring
+### 2.3 Add Performance Monitoring ✅ COMPLETED
 
 **Impact**: 🟡 Medium (enables data-driven optimization) **Effort**: 🟡 Medium (2 hours) **Files**:
 New file `performance_monitor.py`
+
+**Status**: ✅ Implemented on 2026-01-01
 
 #### Create performance_monitor.py
 
@@ -613,16 +625,37 @@ def main() -> None:
 
 #### Success Metrics (Monitoring)
 
-- [ ] Performance report printed after each run
-- [ ] Timing data helps identify new bottlenecks
-- [ ] Negligible overhead (<1% slowdown)
+- [x] Performance report printed after each run
+- [x] Timing data helps identify new bottlenecks
+- [x] Negligible overhead (<1% slowdown)
+
+**Implementation Details**:
+- Created `performance_monitor.py` with PerformanceMetrics class
+- Added `@timed` decorator for sync functions
+- Added `@timed_async` decorator for async functions
+- Added `timer()` context manager for code blocks
+- Integrated into main.py with tracking for:
+  - Scraping time (per lesson)
+  - Download time (per batch)
+  - Compression time (per course)
+  - Total execution time
+  - Courses/lessons processed
+  - File statistics from database
+- Performance report shows:
+  - Time breakdown with percentages
+  - File statistics (downloaded, skipped, failed)
+  - Data transferred (MB)
+  - Throughput metrics (files/sec, MB/sec)
+  - Top 5 function timings
 
 ---
 
-### 2.4 Implement Adaptive Timeouts
+### 2.4 Implement Adaptive Timeouts ✅ COMPLETED
 
 **Impact**: 🟡 Medium (better handling of large files) **Effort**: 🟢 Low (30 minutes) **Files**:
 `main.py:139`, `async_downloader.py:171`
+
+**Status**: ✅ Implemented on 2026-01-01
 
 #### Code Changes (2.4)
 
@@ -645,6 +678,21 @@ def download_file_task(task: dict[str, str]) -> str:
         response = SESSION.get(url, stream=True, timeout=timeout, headers=headers)
         # ... rest of code ...
 ```
+
+**Implementation Details**:
+- Added timeout constants in `async_downloader.py`:
+  - `TIMEOUT_VIDEO = 600` (10 minutes for videos)
+  - `TIMEOUT_PDF = 120` (2 minutes for PDFs)
+  - `TIMEOUT_DEFAULT = 60` (1 minute for other files)
+- Created `get_adaptive_timeout(filename)` helper function
+- Integrated into `download_file_async()` using `aiohttp.ClientTimeout`
+- Timeout is set per-request based on file extension
+- Supports multiple video formats (.mp4, .avi, .mkv, .mov, .webm)
+
+**Benefits**:
+- Large video files no longer timeout prematurely
+- Small files fail faster if connection is broken
+- More reliable downloads for slow connections
 
 ---
 

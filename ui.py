@@ -266,3 +266,67 @@ def goodbye() -> str:
 │                                                                  │
 ╰──────────────────────────────────────────────────────────────────╝{Style.RESET_ALL}
 """
+
+
+def course_selection_panel(courses: list[dict[str, str]]) -> str:
+    """Create a panel listing all available courses for selection.
+
+    Args:
+        courses: List of course dicts with 'title' and 'url' keys.
+
+    Returns:
+        Formatted string with numbered course list.
+    """
+    width = get_terminal_width()
+    max_title_len = width - 10  # Leave room for number and padding
+
+    lines = []
+    for i, course in enumerate(courses, 1):
+        title = str(course.get('title', 'Curso sem título'))
+        if len(title) > max_title_len:
+            title = title[:max_title_len - 3] + "..."
+        lines.append(f"  {Fore.YELLOW}{i:3d}.{Style.RESET_ALL} {title}")
+
+    header_text = f"📚 CURSOS DISPONÍVEIS ({len(courses)} cursos)"
+
+    result = f"\n{Fore.CYAN}{Style.BRIGHT}{header_text}{Style.RESET_ALL}\n"
+    result += f"{Fore.CYAN}{'─' * min(width - 2, 60)}{Style.RESET_ALL}\n"
+    result += "\n".join(lines)
+    result += f"\n{Fore.CYAN}{'─' * min(width - 2, 60)}{Style.RESET_ALL}\n"
+
+    return result
+
+
+def selection_prompt() -> str:
+    """Create the selection prompt with usage instructions.
+
+    Returns:
+        Formatted string with selection instructions.
+    """
+    return f"""
+{Fore.GREEN}{Style.BRIGHT}Selecione os cursos para download:{Style.RESET_ALL}
+  {Fore.CYAN}•{Style.RESET_ALL} Digite {Fore.YELLOW}'all'{Style.RESET_ALL} para baixar todos
+  {Fore.CYAN}•{Style.RESET_ALL} Digite números específicos: {Fore.YELLOW}1,3,5{Style.RESET_ALL}
+  {Fore.CYAN}•{Style.RESET_ALL} Digite intervalos: {Fore.YELLOW}1-5{Style.RESET_ALL}
+  {Fore.CYAN}•{Style.RESET_ALL} Combine opções: {Fore.YELLOW}1,3,5-7,10{Style.RESET_ALL}
+
+{Fore.GREEN}>{Style.RESET_ALL} """
+
+
+def selected_courses_summary(courses: list[dict[str, str]]) -> str:
+    """Show summary of selected courses.
+
+    Args:
+        courses: List of selected course dicts.
+
+    Returns:
+        Formatted string showing selected courses.
+    """
+    result = f"\n{Fore.GREEN}✓ {len(courses)} curso(s) selecionado(s) para download:{Style.RESET_ALL}\n"
+    for course in courses:
+        title = str(course.get('title', 'Curso sem título'))
+        if len(title) > 50:
+            title = title[:47] + "..."
+        result += f"  {Fore.CYAN}•{Style.RESET_ALL} {title}\n"
+    return result
+
