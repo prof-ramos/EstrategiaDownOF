@@ -30,7 +30,7 @@ classifiers = [
 
 dependencies = [
     "requests>=2.28.0",
-    "aiohttp>=3.9.0",
+    "aiohttp>=3.9.4",  # CVE-2024-30251 fixed in 3.9.4
     "aiofiles>=23.2.0",
     "tqdm>=4.65.0",
     "colorama>=0.4.6",
@@ -176,8 +176,9 @@ ignore = [
 python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
+# Gradual strictness - start with checking, move to enforcing
+disallow_untyped_defs = false  # TODO: Enable after adding type hints to all functions
+disallow_incomplete_defs = true  # Enforce complete type hints when present
 check_untyped_defs = true
 no_implicit_optional = true
 warn_redundant_casts = true
@@ -185,6 +186,10 @@ warn_unused_ignores = true
 warn_no_return = true
 follow_imports = "normal"
 ignore_missing_imports = true
+# Additional strictness
+strict_optional = true
+warn_unreachable = true
+disallow_any_generics = false  # Too strict for gradual adoption
 
 [[tool.mypy.overrides]]
 module = [

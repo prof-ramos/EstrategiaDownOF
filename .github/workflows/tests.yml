@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [ main, master, develop, "claude/*" ]
+    branches: [main, master, develop, "claude/*"]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [main, master, develop]
 
 jobs:
   test:
@@ -33,14 +33,14 @@ jobs:
       - name: Run tests with coverage
         run: |
           # Run pytest for proper test discovery and coverage
-          pytest --cov=. --cov-report=xml --cov-report=term-missing -v || true
+          pytest --cov=. --cov-report=xml --cov-report=term-missing -v
 
           # Also run test scripts directly to catch return False failures
           echo "Running test scripts directly to verify exit codes..."
           for test_file in test_*.py; do
             if [ -f "$test_file" ]; then
               echo "  → Running $test_file"
-              python "$test_file" || exit 1
+              python "$test_file"
             fi
           done
 
@@ -78,13 +78,16 @@ jobs:
         run: black --check .
 
       - name: Run type checking with mypy
-        run: mypy . --install-types --non-interactive || true
+        continue-on-error: true
+        run: mypy . --install-types --non-interactive
 
       - name: Run security check with bandit
-        run: bandit -r . -f json -o bandit-report.json || true
+        continue-on-error: true
+        run: bandit -r . -f json -o bandit-report.json
 
       - name: Check dependencies for vulnerabilities
-        run: safety check --json || true
+        continue-on-error: true
+        run: safety check --json
 
   security:
     runs-on: ubuntu-latest
@@ -94,7 +97,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
